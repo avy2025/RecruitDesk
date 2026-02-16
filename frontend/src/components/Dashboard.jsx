@@ -310,6 +310,7 @@ const Dashboard = () => {
                                     key={index}
                                     filename={result.filename}
                                     matchPercentage={result.match_percentage}
+                                    matchDetails={result.match_details}
                                     index={index}
                                 />
                             ))}
