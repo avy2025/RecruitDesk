@@ -15,6 +15,7 @@ import logging
 import spacy
 import numpy as np
 import re
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -159,8 +160,7 @@ def extract_entities(text: str) -> Dict[str, List[str]]:
             if ent.text not in entities[ent.label_]:
                 entities[ent.label_].append(ent.text)
                 
-    # Extract noun chunks for keyword matching (heuristic for skills)
-    # Filter out common stop words and keep meaningful chunks
+    # Extract noun chunks for keyword matching
     for chunk in doc.noun_chunks:
         clean_chunk = chunk.text.lower().strip()
         if len(clean_chunk) > 2 and not nlp.vocab[clean_chunk].is_stop:
@@ -169,15 +169,82 @@ def extract_entities(text: str) -> Dict[str, List[str]]:
     return entities
 
 
+def extract_years_of_experience(text: str) -> float:
+    """
+    Extract total years of experience using regex patterns
+    """
+    # Look for patterns like "5 years", "10+ years", "5+ yrs"
+    patterns = [
+        r'(\d+)\+?\s*(?:years?|yrs?)\b',
+        r'(?:experience|history)\s*of\s*(\d+)\+?\s*(?:years?|yrs?)\b'
+    ]
+    
+    total_years = 0
+    matches = []
+    for pattern in patterns:
+        found = re.findall(pattern, text, re.IGNORECASE)
+        matches.extend([float(m) for m in found])
+    
+    if matches:
+        # Take the maximum mentioned if multiple found, or a heuristic sum
+        # For simplicity, we'll take the max value found in text
+        return max(matches)
+    
+    # Fallback: try to calculate from dates (Year - Year)
+    date_patterns = [
+        r'(?:20|19)\d{2}\s*[-–—]\s*(?:present|20\d{2}|current)',
+        r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s*(?:20|19)\d{2}'
+    ]
+    
+    # This is a complex task for regex, so we'll stick to the explicit mentions for now
+    # but could be expanded later.
+    
+    return total_years
+
+
+def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]) -> Dict[str, float]:
+    """
+    Calculate semantic similarity scores for each section separately
+    """
+    job_embedding = model.encode(job_text, convert_to_tensor=True)
+    
+    section_scores = {}
+    weights = {
+        "skills": 0.4,
+        "experience": 0.4,
+        "education": 0.1,
+        "summary": 0.05,
+        "projects": 0.05
+    }
+    
+    for section, text in resume_sections.items():
+        if text.strip() and len(text.strip()) > 20:
+            section_embedding = model.encode(text, convert_to_tensor=True)
+            score = float(util.cos_sim(job_embedding, section_embedding)[0][0]) * 100
+            section_scores[section] = round(score, 2)
+        else:
+            section_scores[section] = 0
+            
+    # Calculate weighted average
+    weighted_score = sum(section_scores.get(s, 0) * weights.get(s, 0.1) for s in weights)
+    # Re-normalize if some sections were empty
+    total_weight = sum(weights.get(s, 0) for s in section_scores if section_scores[s] > 0)
+    if total_weight > 0:
+        weighted_score = weighted_score / total_weight
+    
+    return {
+        "weighted_semantic_score": round(weighted_score, 2),
+        "section_breakdown": section_scores
+    }
+
+
 def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict) -> Dict[str, Any]:
     """
-    Calculate a hybrid score based on semantic similarity, keyword overlap, and section weights.
+    Calculate a hybrid score based on section-aware semantic similarity, keyword overlap, and skills.
     """
-    
-    # 1. Semantic Score (Transformer-based)
-    job_embedding = model.encode(job_text, convert_to_tensor=True)
-    resume_embedding = model.encode(resume_text, convert_to_tensor=True)
-    semantic_score = float(util.cos_sim(job_embedding, resume_embedding)[0][0]) * 100
+    # 1. Section-aware Semantic Score
+    section_data = calculate_section_aware_score(job_text, resume_details['sections'])
+    semantic_score = section_data['weighted_semantic_score']
     
     # 2. Keyword/Entity Overlap Score
     if nlp:
@@ -185,12 +252,34 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         job_keywords = set([chunk.text.lower() for chunk in job_doc.noun_chunks if not nlp.vocab[chunk.text.lower()].is_stop])
         resume_keywords = set(resume_details['entities']['NOUN_CHUNKS'])
         
-        # Add manual skill extraction (simple list of common tech skills to be sure)
-        tech_skills_db = {"python", "java", "c++", "javascript", "react", "node", "sql", "aws", "docker", "kubernetes", "machine learning", "ai", "fastapi", "django", "flask", "html", "css", "git", "linux", "agile", "scrum", "communication", "leadership", "management", "analysis", "data", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn"}
+        # Enhanced tech skills database
+        tech_skills_db = {
+            # Languages
+            "python", "java", "c++", "javascript", "typescript", "golang", "rust", "php", "ruby", "swift", "kotlin", "c#",
+            # Frontend
+            "react", "angular", "vue", "next.js", "tailwind", "sass", "html", "css", "bootstrap", "redux",
+            # Backend/DB
+            "node", "express", "fastapi", "django", "flask", "spring boot", "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sql", "nosql",
+            # Cloud/DevOps
+            "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "terraform", "ansible", "linux", "git", "ci/cd",
+            # AI/Data
+            "machine learning", "ai", "deep learning", "nlp", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn", "spark", "hadoop", "data science",
+            # Soft Skills/Process
+            "agile", "scrum", "kanban", "communication", "leadership", "management", "problem solving", "analysis"
+        }
         
         # Extract explicit skills from text
         job_skills = {token.text.lower() for token in job_doc if token.text.lower() in tech_skills_db}
-        resume_skills = {token.text.lower() for token in nlp(resume_text) if token.text.lower() in tech_skills_db}
+        # Check noun chunks for skills too (many are multi-word)
+        for chunk in job_doc.noun_chunks:
+            if chunk.text.lower() in tech_skills_db:
+                job_skills.add(chunk.text.lower())
+                
+        resume_doc = nlp(resume_text)
+        resume_skills = {token.text.lower() for token in resume_doc if token.text.lower() in tech_skills_db}
+        for chunk in resume_doc.noun_chunks:
+            if chunk.text.lower() in tech_skills_db:
+                resume_skills.add(chunk.text.lower())
         
         # Calculate overlap
         common_keywords = job_keywords.intersection(resume_keywords)
@@ -198,43 +287,41 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         missing_skills = job_skills - resume_skills
         
         # Keyword score calculation
-        if len(job_keywords) > 0:
-            keyword_score = (len(common_keywords) / len(job_keywords)) * 100
-        else:
-            keyword_score = 0
-            
-        # Skill boost
-        if len(job_skills) > 0:
-            skill_score = (len(common_skills) / len(job_skills)) * 100
-        else:
-            skill_score = 0 # No specific skills found in job description
+        keyword_score = (len(common_keywords) / len(job_keywords) * 100) if job_keywords else 0
+        skill_score = (len(common_skills) / len(job_skills) * 100) if job_skills else 0
             
         matched_skills_list = list(common_skills)
         missing_skills_list = list(missing_skills)
         matched_keywords_list = list(common_keywords)[:10]
 
     else:
-        # Fallback if spaCy failed
         keyword_score = 0
         skill_score = 0
         matched_skills_list = []
         missing_skills_list = []
         matched_keywords_list = []
 
-    # 3. Weighted Hybrid Score
-    # Weights: Semantic (60%), Skills/Keywords (40%)
-    final_score = (semantic_score * 0.6) + (max(keyword_score, skill_score) * 0.4)
+    # 3. YOE Extraction
+    yoe = extract_years_of_experience(resume_text)
+
+    # 4. Weighted Hybrid Score
+    # Weights: Semantic (50%), Skills (40%), Keywords (10%)
+    final_score = (semantic_score * 0.5) + (skill_score * 0.4) + (keyword_score * 0.1)
     
-    # Cap at 100
+    # Bonus for experience if mentioned in JD? (Simplified for now)
+    
     final_score = min(round(final_score, 2), 100)
     
     return {
         "final_score": final_score,
-        "semantic_score": round(semantic_score, 2),
-        "keyword_score": round(max(keyword_score, skill_score), 2),
+        "semantic_score": semantic_score,
+        "skill_score": round(skill_score, 2),
+        "keyword_score": round(keyword_score, 2),
         "matched_skills": matched_skills_list,
         "missing_skills": missing_skills_list,
-        "matched_keywords": matched_keywords_list
+        "matched_keywords": matched_keywords_list,
+        "section_breakdown": section_data['section_breakdown'],
+        "years_of_experience": yoe
     }
 
 
@@ -307,17 +394,24 @@ async def rank_resumes(
                 match_reasons.append(f"Matched key skills: {', '.join(match_data['matched_skills'][:5])}")
             if match_data['keyword_score'] > 50:
                  match_reasons.append("Strong overlap in terminology and domain language")
-            if not match_reasons:
-                match_reasons.append("Moderate match based on general content analysis")
+            
+            # Generate candidate summary
+            skill_count = len(match_data['matched_skills'])
+            yoe = match_data['years_of_experience']
+            summary = f"{yoe}+ years of experience. Matched {skill_count} key skills including {', '.join(match_data['matched_skills'][:3])}."
             
             results.append({
                 "filename": resume_file.filename,
                 "match_percentage": match_data['final_score'],
+                "summary": summary,
+                "years_of_experience": yoe,
                 "match_details": {
                     "semantic_score": match_data['semantic_score'],
+                    "skill_score": match_data['skill_score'],
                     "keyword_score": match_data['keyword_score'],
                     "matched_skills": match_data['matched_skills'],
                     "missing_skills": match_data['missing_skills'],
+                    "section_breakdown": match_data['section_breakdown'],
                     "match_reasons": match_reasons
                 }
             })

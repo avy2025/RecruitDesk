@@ -14,6 +14,10 @@ const Dashboard = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [dragActive, setDragActive] = useState(false);
+    const [percentProgress, setPercentProgress] = useState(0);
+    const [filterMinScore, setFilterMinScore] = useState(0);
+    const [filterSkill, setFilterSkill] = useState('');
+    const [sortBy, setSortBy] = useState('match'); // 'match', 'yoe'
     const fileInputRef = useRef(null);
 
     const API_URL = 'http://localhost:8000';
@@ -77,6 +81,7 @@ const Dashboard = () => {
         setLoading(true);
         setError('');
         setResults([]);
+        setPercentProgress(10); // Start progress
 
         try {
             const formData = new FormData();
@@ -86,11 +91,19 @@ const Dashboard = () => {
                 formData.append('resumes', resume);
             });
 
+            // Simulate progress while waiting for response
+            const progressInterval = setInterval(() => {
+                setPercentProgress(prev => (prev < 90 ? prev + 5 : prev));
+            }, 500);
+
             const response = await axios.post(`${API_URL}/rank-resumes`, formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
             });
+
+            clearInterval(progressInterval);
+            setPercentProgress(100);
 
             if (response.data.success) {
                 setResults(response.data.ranked_resumes);
@@ -99,9 +112,22 @@ const Dashboard = () => {
             console.error('Error analyzing resumes:', err);
             setError(err.response?.data?.detail || 'Failed to analyze resumes. Please ensure the backend is running.');
         } finally {
-            setLoading(false);
+            setTimeout(() => {
+                setLoading(false);
+                setPercentProgress(0);
+            }, 500);
         }
     };
+
+    // Filter and Sort results
+    const filteredResults = results
+        .filter(r => r.match_percentage >= filterMinScore)
+        .filter(r => !filterSkill || r.match_details.matched_skills.some(s => s.toLowerCase().includes(filterSkill.toLowerCase())))
+        .sort((a, b) => {
+            if (sortBy === 'match') return b.match_percentage - a.match_percentage;
+            if (sortBy === 'yoe') return b.years_of_experience - a.years_of_experience;
+            return 0;
+        });
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-dark-bg via-[#0f1535] to-dark-card">
@@ -195,7 +221,7 @@ const Dashboard = () => {
                     {resumes.length > 0 && (
                         <div className="mt-6 space-y-2">
                             <h3 className="text-lg font-semibold text-white mb-3">
-                                Uploaded Files ({resumes.length}/10)
+                                Upload Files ({resumes.length}/10)
                             </h3>
                             {resumes.map((file, index) => (
                                 <motion.div
@@ -261,8 +287,23 @@ const Dashboard = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: 0.3 }}
-                    className="flex justify-center mb-12"
+                    className="flex flex-col items-center mb-12"
                 >
+                    {loading && percentProgress > 0 && (
+                        <div className="w-64 mb-4">
+                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                <span>Analyzing logic...</span>
+                                <span>{Math.round(percentProgress)}%</span>
+                            </div>
+                            <div className="w-full bg-white bg-opacity-10 rounded-full h-1.5 overflow-hidden">
+                                <motion.div
+                                    className="h-full bg-primary-blue"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${percentProgress}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
                     <button
                         onClick={handleAnalyze}
                         disabled={loading}
@@ -286,7 +327,7 @@ const Dashboard = () => {
                                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                                     />
                                 </svg>
-                                <span>Analyzing...</span>
+                                <span>Processing...</span>
                             </div>
                         ) : (
                             'Analyze Candidates'
@@ -301,20 +342,72 @@ const Dashboard = () => {
                         animate={{ opacity: 1 }}
                         transition={{ duration: 0.6 }}
                     >
-                        <h2 className="text-3xl font-bold text-white mb-6">
-                            Ranked Results
-                        </h2>
-                        <div className="space-y-4">
-                            {results.map((result, index) => (
-                                <ResultCard
-                                    key={index}
-                                    filename={result.filename}
-                                    matchPercentage={result.match_percentage}
-                                    matchDetails={result.match_details}
-                                    index={index}
-                                />
-                            ))}
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                            <h2 className="text-3xl font-bold text-white">
+                                Ranked Results
+                            </h2>
+
+                            {/* Filtering Controls */}
+                            <div className="flex flex-wrap items-center gap-4 bg-white bg-opacity-5 p-4 rounded-xl border border-white border-opacity-10">
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs text-gray-400">Min Score: {filterMinScore}%</label>
+                                    <input
+                                        type="range"
+                                        min="0" max="100"
+                                        value={filterMinScore}
+                                        onChange={(e) => setFilterMinScore(parseInt(e.target.value))}
+                                        className="w-32 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-blue"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs text-gray-400">Skill Filter</label>
+                                    <input
+                                        type="text"
+                                        placeholder="JS, React..."
+                                        value={filterSkill}
+                                        onChange={(e) => setFilterSkill(e.target.value)}
+                                        className="bg-dark-bg border border-white border-opacity-10 text-xs px-2 py-1 rounded-md text-white focus:outline-none focus:border-primary-blue"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs text-gray-400">Sort By</label>
+                                    <select
+                                        value={sortBy}
+                                        onChange={(e) => setSortBy(e.target.value)}
+                                        className="bg-dark-bg border border-white border-opacity-10 text-xs px-2 py-1 rounded-md text-white focus:outline-none"
+                                    >
+                                        <option value="match">Highest Match</option>
+                                        <option value="yoe">Years of Exp</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
+
+                        {filteredResults.length > 0 ? (
+                            <div className="space-y-4">
+                                {filteredResults.map((result, index) => (
+                                    <ResultCard
+                                        key={index}
+                                        filename={result.filename}
+                                        matchPercentage={result.match_percentage}
+                                        matchDetails={result.match_details}
+                                        summary={result.summary}
+                                        yoe={result.years_of_experience}
+                                        index={index}
+                                    />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-20 glass-card">
+                                <p className="text-gray-400 text-lg">No candidates match your current filters.</p>
+                                <button
+                                    onClick={() => { setFilterMinScore(0); setFilterSkill(''); }}
+                                    className="text-primary-blue mt-2 hover:underline"
+                                >
+                                    Reset Filters
+                                </button>
+                            </div>
+                        )}
                     </motion.section>
                 )}
             </div>
