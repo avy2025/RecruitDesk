@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 
 /**
  * LandingAnimation Component
@@ -8,6 +8,15 @@ import { useEffect, useState } from 'react';
  */
 const LandingAnimation = ({ onComplete }) => {
     const [startTransition, setStartTransition] = useState(false);
+
+    const particles = useMemo(() => {
+        return [...Array(20)].map(() => ({
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            duration: 2 + Math.random() * 2,
+            delay: Math.random() * 2,
+        }));
+    }, []);
 
     useEffect(() => {
         // Start transition after 2.5 seconds
@@ -35,22 +44,22 @@ const LandingAnimation = ({ onComplete }) => {
         >
             {/* Animated background particles */}
             <div className="absolute inset-0 overflow-hidden">
-                {[...Array(20)].map((_, i) => (
+                {particles.map((p, i) => (
                     <motion.div
                         key={i}
                         className="absolute w-1 h-1 bg-primary-blue rounded-full"
                         style={{
-                            left: `${Math.random() * 100}%`,
-                            top: `${Math.random() * 100}%`,
+                            left: p.left,
+                            top: p.top,
                         }}
                         animate={{
                             opacity: [0.2, 0.8, 0.2],
                             scale: [1, 1.5, 1],
                         }}
                         transition={{
-                            duration: 2 + Math.random() * 2,
+                            duration: p.duration,
                             repeat: Infinity,
-                            delay: Math.random() * 2,
+                            delay: p.delay,
                         }}
                     />
                 ))}

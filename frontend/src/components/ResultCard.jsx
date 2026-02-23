@@ -5,15 +5,10 @@ import { useState } from 'react';
  * ResultCard Component
  * Displays individual resume ranking result with glassmorphism design and AI insights
  */
-const ResultCard = ({ filename, matchPercentage, matchDetails, index }) => {
+const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, index }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
-    // Color coding based on score
-    const getScoreColor = (score) => {
-        if (score >= 80) return "text-green-400";
-        if (score >= 60) return "text-yellow-400";
-        return "text-red-400";
-    };
+
 
     return (
         <motion.div
@@ -41,7 +36,7 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, index }) => {
                     {/* Candidate Summary */}
                     <div className="bg-white bg-opacity-5 p-3 rounded-lg border border-white border-opacity-5 mb-2">
                         <p className="text-sm text-gray-300 leading-relaxed">
-                            <span className="text-primary-blue font-semibold">Summary:</span> {matchDetails.summary || `Candidate with ${matchDetails.years_of_experience || 0}+ years of experience and matches across key requirement sections.`}
+                            <span className="text-primary-blue font-semibold">Summary:</span> {summary || `Candidate with ${yoe || 0}+ years of experience and matches across key requirement sections.`}
                         </p>
                     </div>
                 </div>
