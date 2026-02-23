@@ -186,9 +186,10 @@ def extract_years_of_experience(text: str) -> float:
         matches.extend([float(m) for m in found])
     
     if matches:
-        # Take the maximum mentioned if multiple found, or a heuristic sum
-        # For simplicity, we'll take the max value found in text
-        return max(matches)
+        # Filter for realistic years of experience (e.g., 0 to 50)
+        valid_matches = [m for m in matches if m <= 50]
+        if valid_matches:
+            return max(valid_matches)
     
     # Fallback: try to calculate from dates (Year - Year)
     date_patterns = [
