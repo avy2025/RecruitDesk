@@ -11,7 +11,7 @@ RecruitDesk AI is a professional intelligent application that uses advanced arti
 - **Cinematic Landing Animation**: Professional intro with logo glow effects and smooth transitions
 - **Advanced AI Ranking**: Powered by `all-mpnet-base-v2` for superior semantic understanding
 - **Hybrid Scoring Algorithm**: Combines deep semantic search (60%) with keyword & skill matching (40%)
-- **Entity Extraction**: Automatically identifies Skills, Experience, and Education sections
+- **Entity Extraction & Robust Text Parsing**: Automatically identifies Skills, Experience, Education sections, and accurately extracts real Years of Experience (YoE) using intelligent filtering.
 - **Explainable AI**: Provides "Match Breakdown" and "Why this match?" insights for every candidate
 - **Drag & Drop Upload**: Intuitive file upload with support for up to 10 PDF resumes
 - **Beautiful UI**: Dark theme with glassmorphism design and smooth animations
@@ -39,6 +39,9 @@ RecruitDesk AI is a professional intelligent application that uses advanced arti
 ### Prerequisites
 - Python 3.11 or higher
 - Node.js 16 or higher
+
+### Quick Setup Helpers
+For a faster startup on Windows, you can simply run the `start_backend.bat` and `start_frontend.bat` scripts located in the parent directory!
 
 ### Backend Setup
 
