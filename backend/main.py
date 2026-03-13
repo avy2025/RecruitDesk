@@ -229,11 +229,11 @@ def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]
     
     section_scores = {}
     weights = {
-        "skills": 0.4,
-        "experience": 0.4,
-        "education": 0.1,
+        "skills": 0.45,
+        "experience": 0.35,
+        "education": 0.05,
         "summary": 0.05,
-        "projects": 0.05
+        "projects": 0.10
     }
     
     for section, text in resume_sections.items():
@@ -477,6 +477,72 @@ async def rank_resumes(
                     os.remove(temp_file_path)
             except Exception as e:
                 logger.warning(f"Failed to delete temporary file {temp_file_path}: {str(e)}")
+
+
+@app.post("/generate-questions")
+async def generate_interview_questions(data: Dict[str, Any]):
+    """
+    Generate tailored interview questions based on match results
+    """
+    matched_skills = data.get("matched_skills", [])
+    missing_skills = data.get("missing_skills", [])
+    yoe = data.get("years_of_experience", 0)
+    
+    questions = []
+    
+    # Core technical questions based on missing skills (probing gaps)
+    if missing_skills:
+        skill = missing_skills[0]
+        questions.append({
+            "type": "technical",
+            "skill": skill,
+            "question": f"While your resume shows strong experience, we noticed {skill} is a key requirement. Can you describe your familiarity with it or a similar technology?",
+            "expected": f"Demonstration of transferrable skills or a quick learning ability regarding {skill}."
+        })
+    
+    # Deep dive into strengths
+    if matched_skills:
+        skill = matched_skills[0]
+        questions.append({
+            "type": "experience",
+            "skill": skill,
+            "question": f"Given your expertise in {skill}, what was the most challenging technical hurdle you faced in a recent project involving it?",
+            "expected": "Detailed problem-solving approach and technical depth."
+        })
+        
+    # Seniority/Role based
+    if yoe >= 5:
+        questions.append({
+            "type": "leadership",
+            "question": "With your extensive experience, how do you approach mentoring junior developers or architecting systems for scalability?",
+            "expected": "Evidence of leadership qualities and architectural thinking."
+        })
+    else:
+        questions.append({
+            "type": "career",
+            "question": "As someone early in their career, how do you keep up with rapidly evolving tech stacks like the ones mentioned in the job description?",
+            "expected": "Curiosity, continuous learning habits, and resourcefulness."
+        })
+    
+    # Scenario based
+    if "agile" in [s.lower() for s in matched_skills]:
+        questions.append({
+            "type": "process",
+            "question": "How do you handle scope creep or shifting priorities in an Agile sprint environment?",
+            "expected": "Adaptability and communication skills within a team framework."
+        })
+    
+    # Soft skills
+    questions.append({
+        "type": "soft_skill",
+        "question": "Describe a time you had a technical disagreement with a teammate. How did you resolve it?",
+        "expected": "Collaboration and maturity."
+    })
+    
+    return {
+        "success": True,
+        "questions": questions[:5]
+    }
 
 
 @app.get("/")

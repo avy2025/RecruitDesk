@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  recruitdesk-ai:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+    environment:
+      - ENV=production
+    restart: always
