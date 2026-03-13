@@ -5,7 +5,7 @@ import { useState } from 'react';
  * ResultCard Component
  * Displays individual resume ranking result with glassmorphism design and AI insights
  */
-const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, index }) => {
+const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, topStrengths, index }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
 
@@ -43,6 +43,10 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, ind
 
                 {/* Match percentage */}
                 <div className="flex items-center gap-6">
+                    <div className="text-center bg-white bg-opacity-5 p-3 rounded-xl border border-white border-opacity-10 min-w-[80px]">
+                        <div className="text-xl font-bold text-primary-blue">{yoe}</div>
+                        <div className="text-[10px] text-gray-400 uppercase">Years Exp</div>
+                    </div>
                     <div className="text-right">
                         <div className={`text-4xl font-bold bg-gradient-to-r from-primary-blue to-primary-green bg-clip-text text-transparent`}>
                             {matchPercentage}%
@@ -51,6 +55,17 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, ind
                     </div>
                 </div>
             </div>
+
+            {/* Top Strengths chips */}
+            {topStrengths && topStrengths.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-4">
+                    {topStrengths.map((str, i) => (
+                        <span key={i} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary-green bg-opacity-10 text-primary-green border border-primary-green border-opacity-20">
+                            {str}
+                        </span>
+                    ))}
+                </div>
+            )}
 
             {/* Progress bar */}
             <div className="mt-4 w-full bg-white bg-opacity-10 rounded-full h-3 overflow-hidden">
