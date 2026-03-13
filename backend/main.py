@@ -110,30 +110,29 @@ def parse_resume_sections(text: str) -> Dict[str, str]:
     
     # Common headers for sections (case insensitive)
     headers = {
-        "skills": ["skills", "technical skills", "technologies", "competencies", "core competencies"],
-        "experience": ["experience", "work experience", "professional experience", "employment history", "work history"],
-        "education": ["education", "academic background", "certifications", "qualifications"],
-        "projects": ["projects", "personal projects", "academic projects"],
-        "summary": ["summary", "profile", "professional summary", "about me", "objective"]
+        "skills": ["skills", "technical skills", "technologies", "competencies", "core competencies", "tools", "expertise"],
+        "experience": ["experience", "work experience", "professional experience", "employment history", "work history", "employment"],
+        "education": ["education", "academic background", "certifications", "qualifications", "academic profile"],
+        "projects": ["projects", "personal projects", "academic projects", "key projects"],
+        "summary": ["summary", "profile", "professional summary", "about me", "objective", "professional profile"]
     }
     
     current_section = "summary" # Default to summary or unmatched text
     
     lines = text.split('\n')
     for line in lines:
-        line_clean = line.strip().lower()
+        line_clean = line.strip().lower().rstrip(':')
         
         # Check if line is a header
         is_header = False
-        if len(line_clean) < 50: # Headers are usually short
+        if len(line_clean) < 40: # Headers are usually short
             for section, keywords in headers.items():
-                if any(keyword == line_clean for keyword in keywords) or \
-                   any(f"{keyword}:" == line_clean for keyword in keywords):
+                if any(keyword == line_clean for keyword in keywords):
                     current_section = section
                     is_header = True
                     break
         
-        if not is_header:
+        if not is_header and line.strip():
             sections[current_section] += line + "\n"
             
     return sections
@@ -171,36 +170,55 @@ def extract_entities(text: str) -> Dict[str, List[str]]:
 
 def extract_years_of_experience(text: str) -> float:
     """
-    Extract total years of experience using regex patterns
+    Extract total years of experience using regex patterns and date calculation
     """
-    # Look for patterns like "5 years", "10+ years", "5+ yrs"
+    # 1. Direct mentions like "5 years", "10+ years", "5+ yrs"
     patterns = [
-        r'(\d+)\+?\s*(?:years?|yrs?)\b',
-        r'(?:experience|history)\s*of\s*(\d+)\+?\s*(?:years?|yrs?)\b'
+        r'(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?|yr)\b',
+        r'(?:experience|history)\s*of\s*(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?|yr)\b'
     ]
     
-    total_years = 0
     matches = []
     for pattern in patterns:
         found = re.findall(pattern, text, re.IGNORECASE)
         matches.extend([float(m) for m in found])
     
+    # 2. Date ranges like "2018 - 2023" or "2015 - Present"
+    date_range_pattern = r'(?:20|19)\d{2}\s*[-–—]\s*(?:present|current|20\d{2})'
+    date_ranges = re.findall(date_range_pattern, text, re.IGNORECASE)
+    
+    current_year = datetime.now().year
+    range_years = 0
+    for dr in date_ranges:
+        parts = re.split(r'[-–—]', dr)
+        if len(parts) == 2:
+            try:
+                start_year = int(re.search(r'\d{4}', parts[0]).group())
+                end_str = parts[1].strip().lower()
+                if 'present' in end_str or 'current' in end_str:
+                    end_year = current_year
+                else:
+                    end_year = int(re.search(r'\d{4}', end_str).group())
+                
+                exp = end_year - start_year
+                if 0 < exp < 50:
+                    range_years += exp
+            except (ValueError, AttributeError):
+                continue
+
+    if range_years > 0:
+        matches.append(range_years)
+    
     if matches:
-        # Filter for realistic years of experience (e.g., 0 to 50)
-        valid_matches = [m for m in matches if m <= 50]
+        # Filter for realistic years of experience (0 to 50)
+        valid_matches = [m for m in matches if 0 <= m <= 50]
         if valid_matches:
+            # We use max for explicit mentions, but we should be careful about summing ranges vs mentions
+            # If we have ranges, they might be more accurate if we sum unique periods, 
+            # but for an MVP, max of either explicit or range is a good heuristic.
             return max(valid_matches)
     
-    # Fallback: try to calculate from dates (Year - Year)
-    date_patterns = [
-        r'(?:20|19)\d{2}\s*[-–—]\s*(?:present|20\d{2}|current)',
-        r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s*(?:20|19)\d{2}'
-    ]
-    
-    # This is a complex task for regex, so we'll stick to the explicit mentions for now
-    # but could be expanded later.
-    
-    return total_years
+    return 0.0
 
 
 def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]) -> Dict[str, float]:
@@ -256,17 +274,19 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         # Enhanced tech skills database
         tech_skills_db = {
             # Languages
-            "python", "java", "c++", "javascript", "typescript", "golang", "rust", "php", "ruby", "swift", "kotlin", "c#",
+            "python", "java", "c++", "c#", "javascript", "typescript", "golang", "rust", "php", "ruby", "swift", "kotlin", "scala", "dart", "r", "julia", "lua",
             # Frontend
-            "react", "angular", "vue", "next.js", "tailwind", "sass", "html", "css", "bootstrap", "redux",
+            "react", "angular", "vue", "next.js", "nuxt.js", "svelte", "tailwind", "sass", "less", "html", "css", "bootstrap", "redux", "mobx", "webpack", "vite", "babel",
             # Backend/DB
-            "node", "express", "fastapi", "django", "flask", "spring boot", "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sql", "nosql",
+            "node", "express", "fastapi", "django", "flask", "spring boot", "laravel", "rails", "asp.net", "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sql", "nosql", "cassandra", "mariadb", "sqlite",
             # Cloud/DevOps
-            "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "terraform", "ansible", "linux", "git", "ci/cd",
+            "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "terraform", "ansible", "linux", "git", "ci/cd", "circleci", "gitlab", "bitbucket", "prometheus", "grafana", "nginx", "apache",
             # AI/Data
-            "machine learning", "ai", "deep learning", "nlp", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn", "spark", "hadoop", "data science",
+            "machine learning", "ai", "deep learning", "nlp", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn", "spark", "hadoop", "data science", "keras", "opencv", "matplotlib", "seaborn", "nltk", "spacy",
+            # Mobile
+            "flutter", "react native", "ios", "android", "xamarin", "ionic",
             # Soft Skills/Process
-            "agile", "scrum", "kanban", "communication", "leadership", "management", "problem solving", "analysis"
+            "agile", "scrum", "kanban", "communication", "leadership", "management", "problem solving", "analysis", "teamwork", "critical thinking"
         }
         
         # Extract explicit skills from text
@@ -302,17 +322,28 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         missing_skills_list = []
         matched_keywords_list = []
 
-    # 3. YOE Extraction
-    yoe = extract_years_of_experience(resume_text)
+    # 5. Extract Top 3 Strengths
+    # Logic: Most relevant matched skills or high-scoring sections
+    strengths = []
+    # Mix of skills and section performance
+    sorted_skills = sorted(matched_skills_list, key=lambda s: len(s), reverse=True) # Longest skills often more specific
+    if sorted_skills:
+        strengths.extend(sorted_skills[:2])
+    
+    if semantic_score > 80:
+        strengths.append("Exceptional semantic match")
+    elif yoe >= 5:
+        strengths.append(f"Deep experience ({yoe}+ years)")
+    elif section_data['section_breakdown'].get('skills', 0) > 85:
+        strengths.append("High technical skill density")
+    
+    # Ensure unique and capped at 3
+    final_strengths = []
+    for s in strengths:
+        if s not in final_strengths:
+            final_strengths.append(s)
+    final_strengths = final_strengths[:3]
 
-    # 4. Weighted Hybrid Score
-    # Weights: Semantic (50%), Skills (40%), Keywords (10%)
-    final_score = (semantic_score * 0.5) + (skill_score * 0.4) + (keyword_score * 0.1)
-    
-    # Bonus for experience if mentioned in JD? (Simplified for now)
-    
-    final_score = min(round(final_score, 2), 100)
-    
     return {
         "final_score": final_score,
         "semantic_score": semantic_score,
@@ -322,7 +353,8 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         "missing_skills": missing_skills_list,
         "matched_keywords": matched_keywords_list,
         "section_breakdown": section_data['section_breakdown'],
-        "years_of_experience": yoe
+        "years_of_experience": yoe,
+        "top_strengths": final_strengths
     }
 
 
@@ -334,8 +366,12 @@ async def rank_resumes(
     """
     Rank resumes based on hybrid matching algorithm
     """
-    if not job_description or not job_description.strip():
-        raise HTTPException(status_code=400, detail="Job description cannot be empty")
+    # Basic Input Sanitization
+    job_description = re.sub(r'[^\x00-\x7F]+', ' ', job_description) # Remove non-ASCII
+    job_description = job_description.strip()
+
+    if not job_description or len(job_description) < 10:
+        raise HTTPException(status_code=400, detail="Job description is too short or empty")
     
     if not resumes or len(resumes) == 0:
         raise HTTPException(status_code=400, detail="At least one resume is required")
@@ -406,6 +442,7 @@ async def rank_resumes(
                 "match_percentage": match_data['final_score'],
                 "summary": summary,
                 "years_of_experience": yoe,
+                "top_strengths": match_data['top_strengths'],
                 "match_details": {
                     "semantic_score": match_data['semantic_score'],
                     "skill_score": match_data['skill_score'],
