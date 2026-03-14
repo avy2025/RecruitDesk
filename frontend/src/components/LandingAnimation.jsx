@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 
 /**
  * LandingAnimation Component
@@ -9,14 +9,12 @@ import { useEffect, useState, useMemo } from 'react';
 const LandingAnimation = ({ onComplete }) => {
     const [startTransition, setStartTransition] = useState(false);
 
-    const particles = useMemo(() => {
-        return [...Array(20)].map(() => ({
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-            duration: 2 + Math.random() * 2,
-            delay: Math.random() * 2,
-        }));
-    }, []);
+    const [particles] = useState(() => [...Array(20)].map(() => ({
+        left: `${Math.random() * 100}%`,
+        top: `${Math.random() * 100}%`,
+        duration: 2 + Math.random() * 2,
+        delay: Math.random() * 2,
+    })));
 
     useEffect(() => {
         // Start transition after 2.5 seconds
