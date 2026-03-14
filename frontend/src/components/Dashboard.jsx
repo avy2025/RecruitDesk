@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import ResultCard from './ResultCard';
@@ -18,6 +18,7 @@ const Dashboard = () => {
     const [dragActive, setDragActive] = useState(false);
     const [percentProgress, setPercentProgress] = useState(0);
     const [filterMinScore, setFilterMinScore] = useState(0);
+    const [filterSkill, setFilterSkill] = useState('');
     const [sortBy, setSortBy] = useState('match'); // 'match', 'yoe'
     const [statusStage, setStatusStage] = useState(''); // 'Uploading...', 'Parsing...', 'Analyzing...'
     const fileInputRef = useRef(null);
@@ -582,7 +583,8 @@ const Dashboard = () => {
                     </div>
                 </div>
             </div>
-            );
+        </div>
+    );
 };
 
-            export default Dashboard;
+export default Dashboard;
