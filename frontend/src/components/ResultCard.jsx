@@ -55,7 +55,7 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                     <div className="flex items-center gap-2 mb-3">
                         <span className="text-sm text-gray-400">Education & Experience Analysis</span>
                         {isExpanded ? (
-                            <span className="text-xs text-primary-blue bg-primary-blue bg-opacity-10 px-2 py-0.5 rounded-full">Expanded Results</span>
+                            <span className="text-xs text-primary-topaz bg-primary-topaz bg-opacity-10 px-2 py-0.5 rounded-full">Expanded Results</span>
                         ) : (
                             <span className="text-xs text-gray-500 italic">Click for deep insights</span>
                         )}
@@ -64,7 +64,7 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                     {/* Candidate Summary */}
                     <div className="bg-white bg-opacity-5 p-3 rounded-lg border border-white border-opacity-5 mb-2">
                         <p className="text-sm text-gray-300 leading-relaxed">
-                            <span className="text-primary-blue font-semibold">Summary:</span> {summary || `Candidate with ${yoe || 0}+ years of experience and matches across key requirement sections.`}
+                            <span className="text-primary-topaz font-semibold">Summary:</span> {summary || `Candidate with ${yoe || 0}+ years of experience and matches across key requirement sections.`}
                         </p>
                     </div>
                 </div>
@@ -72,11 +72,11 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                 {/* Match percentage */}
                 <div className="flex items-center gap-6">
                     <div className="text-center bg-white bg-opacity-5 p-3 rounded-xl border border-white border-opacity-10 min-w-[80px]">
-                        <div className="text-xl font-bold text-primary-blue">{yoe}</div>
+                        <div className="text-xl font-bold text-primary-topaz">{yoe}</div>
                         <div className="text-[10px] text-gray-400 uppercase">Years Exp</div>
                     </div>
                     <div className="text-right">
-                        <div className={`text-4xl font-bold bg-gradient-to-r from-primary-blue to-primary-green bg-clip-text text-transparent`}>
+                        <div className={`text-4xl font-bold bg-gradient-to-r from-primary-topaz to-primary-topaz-light bg-clip-text text-transparent`}>
                             {matchPercentage}%
                         </div>
                         <div className="text-xs text-gray-400 mt-1 uppercase tracking-wider">Match Score</div>
@@ -88,7 +88,7 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
             {topStrengths && topStrengths.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-4">
                     {topStrengths.map((str, i) => (
-                        <span key={i} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary-green bg-opacity-10 text-primary-green border border-primary-green border-opacity-20">
+                        <span key={i} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary-topaz bg-opacity-10 text-primary-topaz border border-primary-topaz border-opacity-20">
                             {str}
                         </span>
                     ))}
@@ -98,7 +98,7 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
             {/* Progress bar */}
             <div className="mt-4 w-full bg-white bg-opacity-10 rounded-full h-3 overflow-hidden">
                 <motion.div
-                    className="h-full rounded-full bg-gradient-to-r from-primary-blue to-primary-green"
+                    className="h-full rounded-full bg-gradient-to-r from-primary-topaz to-primary-topaz-light"
                     initial={{ width: 0 }}
                     animate={{ width: `${matchPercentage}%` }}
                     transition={{ duration: 1, delay: index * 0.1 + 0.3, ease: 'easeOut' }}
@@ -131,8 +131,8 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                                             <Radar
                                                 name="Candidate"
                                                 dataKey="A"
-                                                stroke="#1E88E5"
-                                                fill="#1E88E5"
+                                                stroke="#E6A520"
+                                                fill="#E6A520"
                                                 fillOpacity={0.5}
                                             />
                                         </RadarChart>
@@ -148,7 +148,7 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                                             </div>
                                             <div className="w-full bg-white bg-opacity-5 rounded-full h-1">
                                                 <motion.div
-                                                    className={`h-full rounded-full ${score > 70 ? 'bg-primary-green' : score > 40 ? 'bg-primary-blue' : 'bg-orange-500'}`}
+                                                    className={`h-full rounded-full ${score > 70 ? 'bg-primary-topaz' : score > 40 ? 'bg-primary-topaz-light' : 'bg-orange-800'}`}
                                                     initial={{ width: 0 }}
                                                     animate={{ width: `${score}%` }}
                                                 />
@@ -163,13 +163,13 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                     <div>
                                         <h4 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                                            <span className="w-1.5 h-1.5 bg-primary-green rounded-full"></span>
+                                            <span className="w-1.5 h-1.5 bg-primary-topaz rounded-full"></span>
                                             Match Intelligence
                                         </h4>
                                         <ul className="space-y-3">
                                             {matchDetails.match_reasons && matchDetails.match_reasons.map((reason, i) => (
                                                 <li key={i} className="text-xs text-gray-300 flex items-start gap-2 bg-white bg-opacity-5 p-2 rounded-lg">
-                                                    <span className="text-primary-green font-bold">●</span>
+                                                    <span className="text-primary-topaz font-bold">●</span>
                                                     {reason}
                                                 </li>
                                             ))}
@@ -215,12 +215,12 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                                         {matchDetails.matched_skills && matchDetails.matched_skills.length > 0 && (
                                             <div className="mb-6">
                                                 <h4 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                                                    <span className="w-1.5 h-1.5 bg-primary-blue rounded-full"></span>
+                                                    <span className="w-1.5 h-1.5 bg-primary-topaz rounded-full"></span>
                                                     Matched Domain Skills
                                                 </h4>
                                                 <div className="flex flex-wrap gap-2">
                                                     {matchDetails.matched_skills.map((skill, i) => (
-                                                        <span key={i} className="text-[10px] px-2 py-1 rounded-md bg-primary-blue bg-opacity-10 text-primary-blue border border-primary-blue border-opacity-20 hover:bg-opacity-20 transition-all">
+                                                        <span key={i} className="text-[10px] px-2 py-1 rounded-md bg-primary-topaz bg-opacity-10 text-primary-topaz border border-primary-topaz border-opacity-20 hover:bg-opacity-20 transition-all">
                                                             {skill}
                                                         </span>
                                                     ))}

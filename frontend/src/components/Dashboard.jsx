@@ -226,7 +226,7 @@ const Dashboard = () => {
         });
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-dark-bg via-[#0f1535] to-dark-card">
+        <div className="min-h-screen bg-gradient-to-br from-dark-bg via-[#1A1005] to-dark-card">
             {/* Header */}
             <motion.header
                 initial={{ opacity: 0, y: -20 }}
@@ -263,7 +263,7 @@ const Dashboard = () => {
                         className="lg:col-span-1"
                     >
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                            <svg className="w-5 h-5 text-primary-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg className="w-5 h-5 text-primary-topaz" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             Recent Projects
@@ -298,7 +298,7 @@ const Dashboard = () => {
                                     type="text"
                                     value={projectName}
                                     onChange={(e) => setProjectName(e.target.value)}
-                                    className="bg-transparent border-b border-white border-opacity-20 text-white text-sm focus:outline-none focus:border-primary-blue pb-1"
+                                    className="bg-transparent border-b border-white border-opacity-20 text-white text-sm focus:outline-none focus:border-primary-topaz pb-1"
                                     placeholder="Enter project name..."
                                 />
                             </div>
@@ -329,14 +329,14 @@ const Dashboard = () => {
                                 onDrop={handleDrop}
                                 onClick={() => fileInputRef.current?.click()}
                                 className={`glass-card p-12 border-2 border-dashed transition-all duration-300 cursor-pointer
-              ${dragActive
-                                        ? 'border-primary-blue bg-primary-blue bg-opacity-10'
-                                        : 'border-white border-opacity-20 hover:border-primary-blue hover:bg-opacity-10'
-                                    }`}
+                ${dragActive
+                                        ? 'border-primary-topaz bg-primary-topaz bg-opacity-10'
+                                        : 'border-white border-opacity-20 hover:border-primary-topaz hover:bg-opacity-10'
+                                    } text-topaz-cream`}
                             >
                                 <div className="text-center">
                                     <svg
-                                        className="mx-auto h-16 w-16 text-primary-blue mb-4"
+                                        className="mx-auto h-16 w-16 text-primary-topaz mb-4"
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"
@@ -454,7 +454,7 @@ const Dashboard = () => {
                                     </div>
                                     <div className="w-full bg-white bg-opacity-10 rounded-full h-1.5 overflow-hidden">
                                         <motion.div
-                                            className="h-full bg-primary-blue"
+                                            className="h-full bg-primary-topaz"
                                             initial={{ width: 0 }}
                                             animate={{ width: `${percentProgress}%` }}
                                         />
@@ -506,7 +506,7 @@ const Dashboard = () => {
                                         </h2>
                                         <button
                                             onClick={handleExportCSV}
-                                            className="bg-primary-green bg-opacity-10 text-primary-green border border-primary-green border-opacity-20 px-3 py-1 rounded-md text-xs font-semibold hover:bg-opacity-20 transition-all flex items-center gap-2"
+                                            className="bg-primary-topaz bg-opacity-10 text-primary-topaz border border-primary-topaz border-opacity-20 px-3 py-1 rounded-md text-xs font-semibold hover:bg-opacity-20 transition-all flex items-center gap-2"
                                         >
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="file:///4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -524,7 +524,7 @@ const Dashboard = () => {
                                                 min="0" max="100"
                                                 value={filterMinScore}
                                                 onChange={(e) => setFilterMinScore(parseInt(e.target.value))}
-                                                className="w-32 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-blue"
+                                                className="w-32 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-topaz"
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -534,7 +534,7 @@ const Dashboard = () => {
                                                 placeholder="JS, React..."
                                                 value={filterSkill}
                                                 onChange={(e) => setFilterSkill(e.target.value)}
-                                                className="bg-dark-bg border border-white border-opacity-10 text-xs px-2 py-1 rounded-md text-white focus:outline-none focus:border-primary-blue"
+                                                className="bg-dark-bg border border-white border-opacity-10 text-xs px-2 py-1 rounded-md text-white focus:outline-none focus:border-primary-topaz"
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">

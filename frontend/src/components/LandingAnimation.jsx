@@ -35,17 +35,17 @@ const LandingAnimation = ({ onComplete }) => {
 
     return (
         <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-dark-bg via-[#0f1535] to-dark-card overflow-hidden"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-dark-bg via-[#1A1005] to-dark-card overflow-hidden"
             initial={{ opacity: 1 }}
-            animate={startTransition ? { y: '-100vh' } : { y: 0 }}
-            transition={{ duration: 0.7, ease: 'easeInOut' }}
+            animate={startTransition ? { y: '-100vh', opacity: 0 } : { y: 0, opacity: 1 }}
+            transition={{ duration: 0.8, ease: [0.43, 0.13, 0.23, 0.96] }}
         >
             {/* Animated background particles */}
             <div className="absolute inset-0 overflow-hidden">
                 {particles.map((p, i) => (
                     <motion.div
                         key={i}
-                        className="absolute w-1 h-1 bg-primary-blue rounded-full"
+                        className="absolute w-1 h-1 bg-primary-topaz rounded-full"
                         style={{
                             left: p.left,
                             top: p.top,
@@ -78,9 +78,9 @@ const LandingAnimation = ({ onComplete }) => {
                         className="w-32 h-32 object-contain animate-glow"
                         animate={{
                             filter: [
-                                'drop-shadow(0 0 20px rgba(30, 136, 229, 0.5))',
-                                'drop-shadow(0 0 40px rgba(30, 136, 229, 0.8))',
-                                'drop-shadow(0 0 20px rgba(30, 136, 229, 0.5))',
+                                'drop-shadow(0 0 20px rgba(230, 165, 32, 0.5))',
+                                'drop-shadow(0 0 40px rgba(230, 165, 32, 0.8))',
+                                'drop-shadow(0 0 20px rgba(230, 165, 32, 0.5))',
                             ],
                         }}
                         transition={{
@@ -99,7 +99,7 @@ const LandingAnimation = ({ onComplete }) => {
                     className="text-center"
                 >
                     <motion.h1
-                        className="text-6xl md:text-7xl font-bold bg-gradient-to-r from-primary-blue via-primary-green to-primary-blue bg-clip-text text-transparent"
+                        className="text-6xl md:text-7xl font-bold bg-gradient-to-r from-primary-topaz via-primary-topaz-light to-primary-topaz bg-clip-text text-transparent"
                         style={{
                             backgroundSize: '200% auto',
                         }}
@@ -135,7 +135,7 @@ const LandingAnimation = ({ onComplete }) => {
                     {[0, 1, 2].map((i) => (
                         <motion.div
                             key={i}
-                            className="w-3 h-3 bg-primary-blue rounded-full"
+                            className="w-3 h-3 bg-primary-topaz rounded-full"
                             animate={{
                                 scale: [1, 1.5, 1],
                                 opacity: [0.5, 1, 0.5],
