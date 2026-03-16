@@ -31,7 +31,7 @@ app = FastAPI(
 # Configure CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -265,7 +265,10 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
     section_data = calculate_section_aware_score(job_text, resume_details['sections'])
     semantic_score = section_data['weighted_semantic_score']
     
-    # 2. Keyword/Entity Overlap Score
+    # 2. Extract Years of Experience
+    yoe = extract_years_of_experience(resume_text)
+
+    # 3. Keyword/Entity Overlap Score
     if nlp:
         job_doc = nlp(job_text)
         job_keywords = set([chunk.text.lower() for chunk in job_doc.noun_chunks if not nlp.vocab[chunk.text.lower()].is_stop])
@@ -343,6 +346,9 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         if s not in final_strengths:
             final_strengths.append(s)
     final_strengths = final_strengths[:3]
+
+    # Calculate Final Hybrid Score (60% Semantic, 40% Skills)
+    final_score = round((semantic_score * 0.6) + (skill_score * 0.4), 2)
 
     return {
         "final_score": final_score,
