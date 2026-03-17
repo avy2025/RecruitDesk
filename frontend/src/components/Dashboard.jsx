@@ -226,13 +226,13 @@ const Dashboard = () => {
         });
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-dark-bg via-[#1A1005] to-dark-card">
+        <div className="min-h-screen bg-transparent">
             {/* Header */}
             <motion.header
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6 }}
-                className="sticky top-0 z-40 backdrop-blur-lg bg-dark-bg bg-opacity-80 border-b border-white border-opacity-10"
+                className="sticky top-0 z-40 backdrop-blur-md bg-earth-dark bg-opacity-60 border-b border-earth-cream border-opacity-10"
             >
                 <div className="container mx-auto px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -293,12 +293,12 @@ const Dashboard = () => {
                             className="mb-8"
                         >
                             <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-2xl font-semibold text-white">Project Configuration</h2>
+                                <div className="w-1/2"></div>
                                 <input
                                     type="text"
                                     value={projectName}
                                     onChange={(e) => setProjectName(e.target.value)}
-                                    className="bg-transparent border-b border-white border-opacity-20 text-white text-sm focus:outline-none focus:border-primary-topaz pb-1"
+                                    className="bg-transparent border-b border-earth-cream border-opacity-20 text-earth-cream text-lg font-medium focus:outline-none focus:border-earth-tan pb-1"
                                     placeholder="Enter project name..."
                                 />
                             </div>

@@ -131,8 +131,8 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                                             <Radar
                                                 name="Candidate"
                                                 dataKey="A"
-                                                stroke="#E6A520"
-                                                fill="#E6A520"
+                                                stroke="#B8860B"
+                                                fill="#B8860B"
                                                 fillOpacity={0.5}
                                             />
                                         </RadarChart>

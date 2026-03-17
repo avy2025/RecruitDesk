@@ -8,17 +8,20 @@ export default {
         extend: {
             colors: {
                 primary: {
-                    topaz: '#E6A520',
-                    'topaz-light': '#FFD77A',
-                    'topaz-cream': '#FFF8E7',
+                    topaz: '#B8860B', // Earthy Gold/Tan
+                    'topaz-light': '#D2B48C',
+                    'topaz-cream': '#F5F5DC',
                 },
-                deep: {
-                    bronze: '#1A1005',
-                    'bronze-dark': '#0F0A05',
+                earth: {
+                    brown: '#4A3728',
+                    beige: '#D2B48C',
+                    cream: '#F5F5DC',
+                    tan: '#B8860B',
+                    dark: '#2C1E12',
                 },
                 dark: {
-                    bg: '#0F0A05',
-                    card: '#1A1005',
+                    bg: '#2C1E12',
+                    card: 'rgba(74, 55, 40, 0.4)',
                 }
             },
             animation: {
