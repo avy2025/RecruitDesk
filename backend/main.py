@@ -274,36 +274,53 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         job_keywords = set([chunk.text.lower() for chunk in job_doc.noun_chunks if not nlp.vocab[chunk.text.lower()].is_stop])
         resume_keywords = set(resume_details['entities']['NOUN_CHUNKS'])
         
-        # Enhanced tech skills database
+        # Comprehensive tech skills database
         tech_skills_db = {
             # Languages
-            "python", "java", "c++", "c#", "javascript", "typescript", "golang", "rust", "php", "ruby", "swift", "kotlin", "scala", "dart", "r", "julia", "lua",
+            "python", "java", "javascript", "typescript", "c++", "c#", "go", "golang", "rust", "php", "ruby", "swift", "kotlin", "scala", "dart", "r", "julia", "lua", "perl", "cobol", "fortran",
             # Frontend
-            "react", "angular", "vue", "next.js", "nuxt.js", "svelte", "tailwind", "sass", "less", "html", "css", "bootstrap", "redux", "mobx", "webpack", "vite", "babel",
+            "react", "angular", "vue", "next.js", "nuxt.js", "svelte", "tailwind", "sass", "less", "html", "css", "bootstrap", "redux", "mobx", "webpack", "vite", "babel", "jquery", "solidjs", "remix", "astro",
             # Backend/DB
-            "node", "express", "fastapi", "django", "flask", "spring boot", "laravel", "rails", "asp.net", "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sql", "nosql", "cassandra", "mariadb", "sqlite",
+            "node.js", "node", "express", "fastapi", "django", "flask", "spring boot", "laravel", "rails", "asp.net", "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sql", "nosql", "cassandra", "mariadb", "sqlite", "oracle", "db2", "dynamodb", "firebase", "supabase", "prisma", "sequelize", "mongoose", "grpc", "graphql", "rest api", "soap",
             # Cloud/DevOps
-            "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "terraform", "ansible", "linux", "git", "ci/cd", "circleci", "gitlab", "bitbucket", "prometheus", "grafana", "nginx", "apache",
+            "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "terraform", "ansible", "linux", "git", "ci/cd", "circleci", "gitlab", "bitbucket", "prometheus", "grafana", "nginx", "apache", "bash", "shell", "terraform", "cloudformation", "pulumi", "helm", "istio", "aws lambda", "serverless", "s3", "ec2", "rds", "iam",
             # AI/Data
-            "machine learning", "ai", "deep learning", "nlp", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn", "spark", "hadoop", "data science", "keras", "opencv", "matplotlib", "seaborn", "nltk", "spacy",
+            "machine learning", "ai", "deep learning", "nlp", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn", "spark", "hadoop", "data science", "keras", "opencv", "matplotlib", "seaborn", "nltk", "spacy", "huggingface", "llm", "generative ai", "langchain", "llama-index", "vector databases", "pinecone", "milvus", "weaviate", "tableau", "power bi", "looker",
             # Mobile
-            "flutter", "react native", "ios", "android", "xamarin", "ionic",
+            "flutter", "react native", "ios", "android", "xamarin", "ionic", "objective-c", "expo",
+            # Testing
+            "jest", "cypress", "selenium", "mocha", "chai", "playwright", "phpunit", "pytest", "junit",
+            # Tools & Others
+            "jira", "confluence", "trello", "slack", "figma", "adobe xd", "postman", "swagger", "openapi", "docker compose", "rabbitmq", "kafka", "activemq", "microservices", "modular", "monolith", "restful",
             # Soft Skills/Process
-            "agile", "scrum", "kanban", "communication", "leadership", "management", "problem solving", "analysis", "teamwork", "critical thinking"
+            "agile", "scrum", "kanban", "communication", "leadership", "management", "problem solving", "analysis", "teamwork", "critical thinking", "sdlc", "solid principles", "design patterns", "clean code", "dry", "kiss", "tdd", "bdd"
         }
         
         # Extract explicit skills from text
-        job_skills = {token.text.lower() for token in job_doc if token.text.lower() in tech_skills_db}
-        # Check noun chunks for skills too (many are multi-word)
+        # We look for matches in the tech_skills_db and also look for potential new skills via noun chunks
+        job_skills = set()
+        for token in job_doc:
+            token_text = token.text.lower()
+            if token_text in tech_skills_db:
+                job_skills.add(token_text)
+        
+        # Check noun chunks for multi-word skills
         for chunk in job_doc.noun_chunks:
-            if chunk.text.lower() in tech_skills_db:
-                job_skills.add(chunk.text.lower())
+            chunk_text = chunk.text.lower().strip()
+            if chunk_text in tech_skills_db:
+                job_skills.add(chunk_text)
                 
         resume_doc = nlp(resume_text)
-        resume_skills = {token.text.lower() for token in resume_doc if token.text.lower() in tech_skills_db}
+        resume_skills = set()
+        for token in resume_doc:
+            token_text = token.text.lower()
+            if token_text in tech_skills_db:
+                resume_skills.add(token_text)
+        
         for chunk in resume_doc.noun_chunks:
-            if chunk.text.lower() in tech_skills_db:
-                resume_skills.add(chunk.text.lower())
+            chunk_text = chunk.text.lower().strip()
+            if chunk_text in tech_skills_db:
+                resume_skills.add(chunk_text)
         
         # Calculate overlap
         common_keywords = job_keywords.intersection(resume_keywords)
