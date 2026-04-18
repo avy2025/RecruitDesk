@@ -56,10 +56,13 @@ const Dashboard = () => {
         setResumes([]); // Clear current uploads as results are loaded
     };
     const handleFileSelect = (files) => {
-        const pdfFiles = Array.from(files).filter(file => file.type === 'application/pdf');
+        const pdfFiles = Array.from(files).filter(file => 
+            file.type === 'application/pdf' || 
+            file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        );
 
         if (pdfFiles.length === 0) {
-            setError('Please select PDF files only');
+            setError('Please select PDF or DOCX files only');
             return;
         }
 
@@ -349,7 +352,7 @@ const Dashboard = () => {
                                         />
                                     </svg>
                                     <p className="text-lg text-white mb-2">
-                                        Drag and drop PDF resumes here, or click to browse
+                                        Drag and drop PDF or DOCX resumes here, or click to browse
                                     </p>
                                     <p className="text-sm text-gray-400">Maximum 10 files</p>
                                 </div>
@@ -357,7 +360,7 @@ const Dashboard = () => {
                                     ref={fileInputRef}
                                     type="file"
                                     multiple
-                                    accept=".pdf"
+                                    accept=".pdf,.docx"
                                     onChange={(e) => handleFileSelect(e.target.files)}
                                     className="hidden"
                                 />
@@ -390,7 +393,7 @@ const Dashboard = () => {
                                         >
                                             <div className="flex items-center gap-3">
                                                 <svg
-                                                    className="w-6 h-6 text-primary-green"
+                                                    className={`w-6 h-6 ${file.name.toLowerCase().endsWith('.docx') ? 'text-blue-400' : 'text-primary-green'}`}
                                                     fill="none"
                                                     viewBox="0 0 24 24"
                                                     stroke="currentColor"
