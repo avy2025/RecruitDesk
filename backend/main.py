@@ -15,7 +15,12 @@ import logging
 import spacy
 import numpy as np
 import re
+from typing import List, Dict, Any, Optional
 from datetime import datetime
+from rag.embedder import RAGEmbedder
+from rag.vector_store import RAGVectorStore
+from rag.loader import ResumeLoader
+from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of_experience, parse_resume_sections, nlp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +45,9 @@ app.add_middleware(
 # Global variables to store models (loaded once at startup)
 model = None
 nlp = None
+vector_store = None
+rag_embedder = None
+resume_loader = None
 
 
 @app.on_event("startup")
@@ -78,147 +86,38 @@ async def load_models():
             nlp = spacy.blank("en")
             logger.warning("Falling back to blank spaCy model")
 
-
-def extract_text_from_pdf(pdf_file) -> str:
-    """
-    Extract text content from a PDF file using pdfplumber
-    """
-    try:
-        with pdfplumber.open(pdf_file) as pdf:
-            text = ""
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-            return text.strip()
-    except Exception as e:
-        logger.error(f"Error extracting text from PDF: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Failed to extract text from PDF: {str(e)}")
-
-
-def parse_resume_sections(text: str) -> Dict[str, str]:
-    """
-    Segment resume text into logical sections (Skills, Experience, Education)
-    """
-    sections = {
-        "skills": "",
-        "experience": "",
-        "education": "",
-        "projects": "",
-        "summary": ""
-    }
+    # Initialize RAG components
+    global vector_store, rag_embedder, resume_loader
+    logger.info("Initializing RAG components...")
+    rag_embedder = RAGEmbedder.get_instance()
+    # Load existing vector store if available
+    vector_store = RAGVectorStore(dimension=384) # Default for all-MiniLM-L6-v2
+    if os.path.exists("resume_index.faiss") and os.path.exists("resume_metadata.json"):
+        logger.info("Loading existing FAISS index...")
+        vector_store.load("resume_index.faiss", "resume_metadata.json")
     
-    # Common headers for sections (case insensitive)
-    headers = {
-        "skills": ["skills", "technical skills", "technologies", "competencies", "core competencies", "tools", "expertise"],
-        "experience": ["experience", "work experience", "professional experience", "employment history", "work history", "employment"],
-        "education": ["education", "academic background", "certifications", "qualifications", "academic profile"],
-        "projects": ["projects", "personal projects", "academic projects", "key projects"],
-        "summary": ["summary", "profile", "professional summary", "about me", "objective", "professional profile"]
-    }
-    
-    current_section = "summary" # Default to summary or unmatched text
-    
-    lines = text.split('\n')
-    for line in lines:
-        line_clean = line.strip().lower().rstrip(':')
-        
-        # Check if line is a header
-        is_header = False
-        if len(line_clean) < 40: # Headers are usually short
-            for section, keywords in headers.items():
-                if any(keyword == line_clean for keyword in keywords):
-                    current_section = section
-                    is_header = True
-                    break
-        
-        if not is_header and line.strip():
-            sections[current_section] += line + "\n"
-            
-    return sections
+    resume_loader = ResumeLoader(vector_store, rag_embedder)
+    logger.info("RAG system initialized successfully")
 
+
+# --- Legacy Aliases for Backward Compatibility ---
+extract_text_from_pdf = parse_pdf
+extract_years_of_experience_legacy = extract_years_of_experience # Already imported
 
 def extract_entities(text: str) -> Dict[str, List[str]]:
     """
-    Extract entities like Skills, Organizations, Dates using spaCy
+    Legacy wrapper for entity extraction. 
+    New code should use rag.parser.extract_metadata.
     """
-    if not nlp:
-        return {"ORG": [], "DATE": [], "NOUN_CHUNKS": []}
-
-    doc = nlp(text)
-    entities = {
-        "ORG": [],
+    metadata = extract_metadata(text)
+    return {
+        "ORG": [], # Legacy mock
         "DATE": [],
-        "GPE": [], # Locations
-        "PERSON": [],
-        "NOUN_CHUNKS": [] # Potential skills/technologies often appear as noun chunks
+        "GPE": [],
+        "PERSON": [metadata.get("name")] if metadata.get("name") else [],
+        "NOUN_CHUNKS": metadata.get("skills", []) # Approximating
     }
-    
-    for ent in doc.ents:
-        if ent.label_ in entities:
-            if ent.text not in entities[ent.label_]:
-                entities[ent.label_].append(ent.text)
-                
-    # Extract noun chunks for keyword matching
-    for chunk in doc.noun_chunks:
-        clean_chunk = chunk.text.lower().strip()
-        if len(clean_chunk) > 2 and not nlp.vocab[clean_chunk].is_stop:
-            entities["NOUN_CHUNKS"].append(clean_chunk)
-            
-    return entities
-
-
-def extract_years_of_experience(text: str) -> float:
-    """
-    Extract total years of experience using regex patterns and date calculation
-    """
-    # 1. Direct mentions like "5 years", "10+ years", "5+ yrs"
-    patterns = [
-        r'(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?|yr)\b',
-        r'(?:experience|history)\s*of\s*(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?|yr)\b'
-    ]
-    
-    matches = []
-    for pattern in patterns:
-        found = re.findall(pattern, text, re.IGNORECASE)
-        matches.extend([float(m) for m in found])
-    
-    # 2. Date ranges like "2018 - 2023" or "2015 - Present"
-    date_range_pattern = r'(?:20|19)\d{2}\s*[-–—]\s*(?:present|current|20\d{2})'
-    date_ranges = re.findall(date_range_pattern, text, re.IGNORECASE)
-    
-    current_year = datetime.now().year
-    range_years = 0
-    for dr in date_ranges:
-        parts = re.split(r'[-–—]', dr)
-        if len(parts) == 2:
-            try:
-                start_year = int(re.search(r'\d{4}', parts[0]).group())
-                end_str = parts[1].strip().lower()
-                if 'present' in end_str or 'current' in end_str:
-                    end_year = current_year
-                else:
-                    end_year = int(re.search(r'\d{4}', end_str).group())
-                
-                exp = end_year - start_year
-                if 0 < exp < 50:
-                    range_years += exp
-            except (ValueError, AttributeError):
-                continue
-
-    if range_years > 0:
-        matches.append(range_years)
-    
-    if matches:
-        # Filter for realistic years of experience (0 to 50)
-        valid_matches = [m for m in matches if 0 <= m <= 50]
-        if valid_matches:
-            # We use max for explicit mentions, but we should be careful about summing ranges vs mentions
-            # If we have ranges, they might be more accurate if we sum unique periods, 
-            # but for an MVP, max of either explicit or range is a good heuristic.
-            return max(valid_matches)
-    
-    return 0.0
+# --------------------------------------------------
 
 
 def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]) -> Dict[str, float]:
@@ -272,60 +171,24 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
     if nlp:
         job_doc = nlp(job_text)
         job_keywords = set([chunk.text.lower() for chunk in job_doc.noun_chunks if not nlp.vocab[chunk.text.lower()].is_stop])
-        resume_keywords = set(resume_details['entities']['NOUN_CHUNKS'])
         
-        # Comprehensive tech skills database
-        tech_skills_db = {
-            # Languages
-            "python", "java", "javascript", "typescript", "c++", "c#", "go", "golang", "rust", "php", "ruby", "swift", "kotlin", "scala", "dart", "r", "julia", "lua", "perl", "cobol", "fortran",
-            # Frontend
-            "react", "angular", "vue", "next.js", "nuxt.js", "svelte", "tailwind", "sass", "less", "html", "css", "bootstrap", "redux", "mobx", "webpack", "vite", "babel", "jquery", "solidjs", "remix", "astro",
-            # Backend/DB
-            "node.js", "node", "express", "fastapi", "django", "flask", "spring boot", "laravel", "rails", "asp.net", "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sql", "nosql", "cassandra", "mariadb", "sqlite", "oracle", "db2", "dynamodb", "firebase", "supabase", "prisma", "sequelize", "mongoose", "grpc", "graphql", "rest api", "soap",
-            # Cloud/DevOps
-            "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "terraform", "ansible", "linux", "git", "ci/cd", "circleci", "gitlab", "bitbucket", "prometheus", "grafana", "nginx", "apache", "bash", "shell", "terraform", "cloudformation", "pulumi", "helm", "istio", "aws lambda", "serverless", "s3", "ec2", "rds", "iam",
-            # AI/Data
-            "machine learning", "ai", "deep learning", "nlp", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn", "spark", "hadoop", "data science", "keras", "opencv", "matplotlib", "seaborn", "nltk", "spacy", "huggingface", "llm", "generative ai", "langchain", "llama-index", "vector databases", "pinecone", "milvus", "weaviate", "tableau", "power bi", "looker",
-            # Mobile
-            "flutter", "react native", "ios", "android", "xamarin", "ionic", "objective-c", "expo",
-            # Testing
-            "jest", "cypress", "selenium", "mocha", "chai", "playwright", "phpunit", "pytest", "junit",
-            # Tools & Others
-            "jira", "confluence", "trello", "slack", "figma", "adobe xd", "postman", "swagger", "openapi", "docker compose", "rabbitmq", "kafka", "activemq", "microservices", "modular", "monolith", "restful",
-            # Soft Skills/Process
-            "agile", "scrum", "kanban", "communication", "leadership", "management", "problem solving", "analysis", "teamwork", "critical thinking", "sdlc", "solid principles", "design patterns", "clean code", "dry", "kiss", "tdd", "bdd"
-        }
+        # Use centralized metadata extraction
+        metadata = extract_metadata(resume_text)
+        resume_keywords = set(metadata['skills'])
+        resume_skills = set(metadata['skills'])
+        yoe = metadata['experience']
         
-        # Extract explicit skills from text
-        # We look for matches in the tech_skills_db and also look for potential new skills via noun chunks
-        job_skills = set()
-        for token in job_doc:
-            token_text = token.text.lower()
-            if token_text in tech_skills_db:
-                job_skills.add(token_text)
-        
-        # Check noun chunks for multi-word skills
+        # Identify job skills from database (already unified in parser, but we can filter here for scoring)
+        from rag.parser import TECH_SKILLS_DB
+        job_skills = {token.text.lower() for token in job_doc if token.text.lower() in TECH_SKILLS_DB}
         for chunk in job_doc.noun_chunks:
-            chunk_text = chunk.text.lower().strip()
-            if chunk_text in tech_skills_db:
-                job_skills.add(chunk_text)
-                
-        resume_doc = nlp(resume_text)
-        resume_skills = set()
-        for token in resume_doc:
-            token_text = token.text.lower()
-            if token_text in tech_skills_db:
-                resume_skills.add(token_text)
-        
-        for chunk in resume_doc.noun_chunks:
-            chunk_text = chunk.text.lower().strip()
-            if chunk_text in tech_skills_db:
-                resume_skills.add(chunk_text)
+            if chunk.text.lower() in TECH_SKILLS_DB:
+                job_skills.add(chunk.text.lower())
         
         # Calculate overlap
-        common_keywords = job_keywords.intersection(resume_keywords)
         common_skills = job_skills.intersection(resume_skills)
         missing_skills = job_skills - resume_skills
+        common_keywords = job_keywords.intersection(resume_keywords)
         
         # Keyword score calculation
         keyword_score = (len(common_keywords) / len(job_keywords) * 100) if job_keywords else 0
@@ -422,8 +285,8 @@ async def rank_resumes(
                 temp_file_path = temp_file.name
                 temp_files.append(temp_file_path)
             
-            # Extract text from PDF
-            resume_text = extract_text_from_pdf(temp_file_path)
+            # Extract text from file (PDF or DOCX)
+            resume_text = parse_file(temp_file_path)
             
             if not resume_text or len(resume_text.strip()) < 50:
                 results.append({
@@ -434,13 +297,18 @@ async def rank_resumes(
                 })
                 continue
             
-            # Parse sections and entities
+            # Parse sections (using internal logic for now as it's UI specific)
             sections = parse_resume_sections(resume_text)
-            entities = extract_entities(resume_text)
+            
+            # Centralized metadata extraction
+            metadata = extract_metadata(resume_text)
             
             resume_details = {
                 "sections": sections,
-                "entities": entities
+                "entities": {
+                    "PERSON": [metadata.get("name")] if metadata.get("name") else [],
+                    "NOUN_CHUNKS": metadata.get("skills", [])
+                }
             }
             
             # Calculate match scores
@@ -500,6 +368,36 @@ async def rank_resumes(
                     os.remove(temp_file_path)
             except Exception as e:
                 logger.warning(f"Failed to delete temporary file {temp_file_path}: {str(e)}")
+
+
+@app.post("/ingest-resume")
+async def ingest_resume(
+    file: UploadFile = File(...),
+    candidate_id: Optional[str] = Form(None)
+):
+    """
+    Ingest a resume into the RAG system (PDF or DOCX)
+    """
+    if not file.filename.lower().endswith(('.pdf', '.docx')):
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported")
+
+    # Save to temp file
+    ext = os.path.splitext(file.filename)[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
+        content = await file.read()
+        temp_file.write(content)
+        temp_file_path = temp_file.name
+
+    try:
+        logger.info(f"Ingesting resume: {file.filename}")
+        result = resume_loader.ingest(temp_file_path, candidate_id=candidate_id)
+        return result
+    except Exception as e:
+        logger.error(f"Ingestion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+    finally:
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
 
 @app.post("/generate-questions")
