@@ -72,3 +72,18 @@ class RAGVectorStore:
         # Verify alignment
         if self.index.ntotal != len(self.metadata):
             print(f"Warning: Index count ({self.index.ntotal}) and metadata count ({len(self.metadata)}) mismatch!")
+
+    def validate_integrity(self) -> Dict[str, Any]:
+        """
+        Verify that the FAISS index and metadata are perfectly aligned.
+        """
+        ntotal = self.index.ntotal
+        meta_count = len(self.metadata)
+        is_consistent = ntotal == meta_count
+        
+        return {
+            "is_consistent": is_consistent,
+            "index_count": ntotal,
+            "metadata_count": meta_count,
+            "status": "valid" if is_consistent else "error"
+        }
