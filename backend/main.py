@@ -19,7 +19,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from rag.embedder import RAGEmbedder
 from rag.vector_store import RAGVectorStore
-from rag.loader import ResumeLoader
+from rag.loader import ResumeLoader, JobLoader
+from rag.matcher import CandidateMatcher
 from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of_experience, parse_resume_sections, nlp
 
 # Configure logging
@@ -48,6 +49,8 @@ nlp = None
 vector_store = None
 rag_embedder = None
 resume_loader = None
+job_loader = None
+candidate_matcher = None
 
 
 @app.on_event("startup")
@@ -97,6 +100,11 @@ async def load_models():
         vector_store.load("resume_index.faiss", "resume_metadata.json")
     
     resume_loader = ResumeLoader(vector_store, rag_embedder)
+    
+    global job_loader, candidate_matcher
+    job_loader = JobLoader(vector_store, rag_embedder)
+    candidate_matcher = CandidateMatcher(vector_store, rag_embedder)
+    
     logger.info("RAG system initialized successfully")
 
 
@@ -485,3 +493,34 @@ async def health_check():
         "model": "all-mpnet-base-v2" if model else "loading/failed",
         "spacy": "en_core_web_sm" if nlp else "loading/failed"
     }
+
+@app.post("/match-candidates")
+async def match_candidates(
+    job_description: str = Form(...),
+    min_experience: float = Form(0.0),
+    required_skills: Optional[str] = Form(None), # Comma-separated
+    store_job: bool = Form(False)
+):
+    """
+    Match candidates against a job description using RAG and hybrid scoring.
+    """
+    try:
+        logger.info("Received candidate matching request")
+        
+        # Parse required skills if provided
+        skills_list = []
+        if required_skills:
+            skills_list = [s.strip() for s in required_skills.split(",") if s.strip()]
+            
+        result = candidate_matcher.match_candidates_to_job(
+            job_description=job_description,
+            top_k_candidates=10,
+            min_experience=min_experience,
+            required_skills=skills_list,
+            store_job=store_job
+        )
+        
+        return result
+    except Exception as e:
+        logger.error(f"Matching failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
