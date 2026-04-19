@@ -32,21 +32,44 @@ class RAGVectorStore:
         for doc in documents:
             self.metadata.append(doc.dict())
 
-    def search(self, query_embedding: np.ndarray, k: int = 5) -> List[Tuple[Dict[str, Any], float]]:
+    def search(self, query_embedding: np.ndarray, k: int = 5, filter_dict: Dict[str, Any] = None) -> List[Tuple[Dict[str, Any], float]]:
         """
-        Retrieve top-k most similar documents.
+        Retrieve top-k most similar documents optionally filtered by metadata.
         Returns a list of tuples containing (document_data, similarity_score).
         """
         if query_embedding.ndim == 1:
             query_embedding = query_embedding.reshape(1, -1)
             
-        distances, indices = self.index.search(query_embedding.astype('float32'), k)
+        # If we have a filter, we might need to search more than k to find enough matches
+        # but for now we'll search top k and filter. For better precision with large datasets,
+        # we'd use a filtered index or a larger initial k.
+        search_k = k * 5 if filter_dict else k
+        
+        distances, indices = self.index.search(query_embedding.astype('float32'), search_k)
         
         results = []
         for i in range(len(indices[0])):
             idx = indices[0][i]
             if idx != -1 and idx < len(self.metadata):
-                results.append((self.metadata[idx], float(distances[0][i])))
+                meta = self.metadata[idx]
+                
+                # Apply filter
+                match = True
+                if filter_dict:
+                    for key, value in filter_dict.items():
+                        # Check top level or nested 'metadata'
+                        meta_val = meta.get(key)
+                        if meta_val is None and "metadata" in meta:
+                            meta_val = meta["metadata"].get(key)
+                            
+                        if meta_val != value:
+                            match = False
+                            break
+                
+                if match:
+                    results.append((meta, float(distances[0][i])))
+                    if len(results) >= k:
+                        break
                 
         return results
 
