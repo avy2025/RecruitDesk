@@ -113,3 +113,77 @@ class ResumeLoader:
             "metadata": metadata_raw,
             "skills_detected": metadata_raw.get("skills", [])
         }
+
+class JobLoader:
+    """
+    Orchestrates the job description ingestion pipeline:
+    extract metadata -> chunk -> embed -> store (optional)
+    """
+    def __init__(self, vector_store: RAGVectorStore, embedder: RAGEmbedder):
+        self.vector_store = vector_store
+        self.embedder = embedder
+
+    def chunk_text(self, text: str, chunk_size: int = 400, overlap: int = 50) -> List[str]:
+        """Split text into overlapping chunks."""
+        words = text.split()
+        if not words:
+            return []
+        chunks = []
+        step = chunk_size - overlap
+        for i in range(0, len(words), step):
+            chunk_words = words[i:i + chunk_size]
+            chunks.append(" ".join(chunk_words))
+            if i + chunk_size >= len(words):
+                break
+        return chunks
+
+    def ingest_job(self, raw_text: str, job_id: Optional[str] = None, store_job: bool = False) -> Dict[str, Any]:
+        """
+        Extract metadata and optionally store JD in vector store.
+        """
+        from .parser import extract_job_metadata
+        
+        # 1. Extract Metadata
+        metadata_raw = extract_job_metadata(raw_text)
+        
+        # 2. Generate job_id if not provided
+        if not job_id:
+            job_id = f"job_{uuid.uuid4().hex[:8]}"
+
+        # 3. Chunk Text
+        text_chunks = self.chunk_text(raw_text, chunk_size=400, overlap=50)
+        
+        # 4. Prepare Documents
+        documents = []
+        for i, chunk_text in enumerate(text_chunks):
+            chunk_id = f"{job_id}_ch{i}"
+            doc_metadata = DocumentMetadata(
+                type="job",
+                source="job",
+                candidate_id=None, # Not applicable
+                name=metadata_raw.get("role"), # Using role instead of name
+                skills=metadata_raw.get("required_skills", []),
+                experience=metadata_raw.get("experience_required", 0.0),
+                confidence=1.0,
+                chunk_id=chunk_id,
+                chunk_index=i
+            )
+            doc = RAGDocument(id=chunk_id, text=chunk_text, metadata=doc_metadata)
+            documents.append(doc)
+
+        # 5. Get Embeddings
+        texts_to_embed = [doc.text for doc in documents]
+        embeddings = self.embedder.embed_batch(texts_to_embed)
+
+        # 6. Store if requested
+        if store_job:
+            self.vector_store.add_documents(documents, embeddings)
+            self.vector_store.save("resume_index.faiss", "resume_metadata.json")
+
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "chunks_created": len(documents),
+            "metadata": metadata_raw,
+            "embeddings": embeddings.tolist() if not store_job else None # Return for transient matching
+        }

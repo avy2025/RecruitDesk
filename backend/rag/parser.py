@@ -218,3 +218,39 @@ def extract_metadata(text: str) -> Dict[str, Any]:
         "experience": yoe,
         "confidence": round(overall_confidence, 2)
     }
+
+def extract_job_metadata(text: str) -> Dict[str, Any]:
+    """
+    Extract role, required skills, and experience required from a job description.
+    """
+    doc = nlp(text[:10000])
+    
+    # 1. Extract Role (Job Title)
+    # Heuristic: Check first few lines for capitalized nouns or known title patterns
+    role = None
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    if lines:
+        for line in lines[:3]: # Usually in the first 3 non-empty lines
+            if 3 < len(line) < 100:
+                role = line
+                break
+    
+    # 2. Extract Skills
+    detected_skills = []
+    tokens = {token.text.lower() for token in doc}
+    detected_skills.extend([skill for skill in TECH_SKILLS_DB if skill in tokens])
+    
+    for chunk in doc.noun_chunks:
+        chunk_text = chunk.text.lower().strip()
+        if chunk_text in TECH_SKILLS_DB and chunk_text not in detected_skills:
+            detected_skills.append(chunk_text)
+            
+    # 3. Extract Experience Required
+    # Look for "X+ years", "at least X years", etc.
+    exp_required = extract_years_of_experience(text)
+    
+    return {
+        "role": role,
+        "required_skills": sorted(list(set(detected_skills))),
+        "experience_required": float(exp_required)
+    }
