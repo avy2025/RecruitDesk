@@ -22,6 +22,7 @@ from rag.vector_store import RAGVectorStore
 from rag.loader import ResumeLoader, JobLoader
 from rag.matcher import CandidateMatcher
 from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of_experience, parse_resume_sections, nlp
+from rag.llm_service import LLMService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +52,7 @@ rag_embedder = None
 resume_loader = None
 job_loader = None
 candidate_matcher = None
+llm_service = None
 
 
 @app.on_event("startup")
@@ -101,9 +103,10 @@ async def load_models():
     
     resume_loader = ResumeLoader(vector_store, rag_embedder)
     
-    global job_loader, candidate_matcher
+    global job_loader, candidate_matcher, llm_service
     job_loader = JobLoader(vector_store, rag_embedder)
     candidate_matcher = CandidateMatcher(vector_store, rag_embedder)
+    llm_service = LLMService()
     
     logger.info("RAG system initialized successfully")
 
@@ -336,8 +339,17 @@ async def rank_resumes(
             yoe = match_data['years_of_experience']
             summary = f"{yoe}+ years of experience. Matched {skill_count} key skills including {', '.join(match_data['matched_skills'][:3])}."
             
+            # Store in RAG system for Chat Intelligence
+            try:
+                ingest_result = resume_loader.ingest(temp_file_path)
+                candidate_id = ingest_result.get("candidate_id")
+            except Exception as ingest_err:
+                logger.warning(f"Auto-ingestion failed for {resume_file.filename}: {ingest_err}")
+                candidate_id = None
+
             results.append({
                 "filename": resume_file.filename,
+                "candidate_id": candidate_id,
                 "match_percentage": match_data['final_score'],
                 "summary": summary,
                 "years_of_experience": yoe,
@@ -353,7 +365,7 @@ async def rank_resumes(
                 }
             })
             
-            logger.info(f"{resume_file.filename}: {match_data['final_score']}% match")
+            logger.info(f"{resume_file.filename}: {match_data['final_score']}% match (ID: {candidate_id})")
         
         # Sort results by match percentage (highest first)
         results.sort(key=lambda x: x.get('match_percentage', 0), reverse=True)
@@ -524,3 +536,73 @@ async def match_candidates(
     except Exception as e:
         logger.error(f"Matching failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
+
+@app.post("/rag-query")
+async def rag_query(data: Dict[str, Any]):
+    """
+    Unified RAG endpoint: Semantic search + LLM Answer Generation.
+    Supports Global and Candidate-specific modes + Filters.
+    """
+    query = data.get("query")
+    candidate_id = data.get("candidate_id")
+    filters = data.get("filters", {})
+    
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is required")
+        
+    try:
+        logger.info(f"Processing RAG query: {query} (Mode: {'Specific' if candidate_id else 'Global'})")
+        
+        # 1. Prepare search filters
+        search_filters = {"type": "resume"}
+        if candidate_id:
+            search_filters["candidate_id"] = candidate_id
+        
+        # Add optional filters from request
+        if filters.get("skills"):
+            search_filters["skills"] = filters["skills"]
+        if filters.get("min_experience"):
+            search_filters["min_experience"] = float(filters["min_experience"])
+            
+        # 2. Retrieve relevant resume chunks
+        query_embedding = rag_embedder.embed_text(query)
+        
+        # Search top 20 candidate chunks (filtered)
+        retrieved_chunks = vector_store.search(
+            query_embedding, 
+            k=20, 
+            filter_dict=search_filters
+        )
+        
+        if not retrieved_chunks:
+            msg = "No matching candidates found with the specified filters." if filters or candidate_id else "No candidate resumes found in the database."
+            return {
+                "answer": msg,
+                "top_candidates": [],
+                "insights": "Zero results after filtering",
+                "confidence": "low"
+            }
+            
+        # 3. Run Matcher (Phase 3) for scoring context
+        # If candidate_id is specified, we match specifically against that candidate
+        # otherwise we match against top 5
+        matcher_top_k = 1 if candidate_id else 5
+        match_results = candidate_matcher.match_candidates_to_job(
+            job_description=query, 
+            top_k_candidates=matcher_top_k,
+            required_skills=filters.get("skills", []),
+            min_experience=float(filters.get("min_experience", 0))
+        )
+        
+        # 4. Generate LLM Answer
+        result = llm_service.query(
+            query=query, 
+            retrieved_chunks=retrieved_chunks, 
+            matcher_results=match_results
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"RAG query failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")

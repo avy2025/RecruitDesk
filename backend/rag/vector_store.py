@@ -36,14 +36,16 @@ class RAGVectorStore:
         """
         Retrieve top-k most similar documents optionally filtered by metadata.
         Returns a list of tuples containing (document_data, similarity_score).
+        Supports:
+        - Exact match: {"type": "resume"}
+        - List intersection: {"skills": ["python", "react"]}
+        - Numeric min-threshold: {"min_experience": 5}
         """
         if query_embedding.ndim == 1:
             query_embedding = query_embedding.reshape(1, -1)
             
-        # If we have a filter, we might need to search more than k to find enough matches
-        # but for now we'll search top k and filter. For better precision with large datasets,
-        # we'd use a filtered index or a larger initial k.
-        search_k = k * 5 if filter_dict else k
+        # We search a larger pool and then filter
+        search_k = k * 10 if filter_dict else k
         
         distances, indices = self.index.search(query_embedding.astype('float32'), search_k)
         
@@ -56,11 +58,28 @@ class RAGVectorStore:
                 # Apply filter
                 match = True
                 if filter_dict:
+                    doc_meta = meta.get("metadata", {})
                     for key, value in filter_dict.items():
-                        # Check top level or nested 'metadata'
+                        # Handle min_experience
+                        if key == "min_experience":
+                            exp = doc_meta.get("experience", 0)
+                            if exp < value:
+                                match = False
+                                break
+                            continue
+                            
+                        # Handle skills (list intersection)
+                        if key == "skills" and isinstance(value, list):
+                            cand_skills = [s.lower() for s in doc_meta.get("skills", [])]
+                            if not any(req_skill.lower() in cand_skills for req_skill in value):
+                                match = False
+                                break
+                            continue
+
+                        # Exact match for everything else
                         meta_val = meta.get(key)
-                        if meta_val is None and "metadata" in meta:
-                            meta_val = meta["metadata"].get(key)
+                        if meta_val is None:
+                            meta_val = doc_meta.get(key)
                             
                         if meta_val != value:
                             match = False
