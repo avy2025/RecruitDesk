@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import ResultCard from './ResultCard';
+import RAGChat from './RAGChat';
 
 /**
  * Dashboard Component
@@ -21,6 +22,9 @@ const Dashboard = () => {
     const [filterSkill, setFilterSkill] = useState('');
     const [sortBy, setSortBy] = useState('match'); // 'match', 'yoe'
     const [statusStage, setStatusStage] = useState(''); // 'Uploading...', 'Parsing...', 'Analyzing...'
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatMode, setChatMode] = useState('global'); // 'global', 'specific'
+    const [chatCandidate, setChatCandidate] = useState({ id: null, name: null });
     const fileInputRef = useRef(null);
 
     const API_URL = 'http://localhost:8000';
@@ -245,14 +249,25 @@ const Dashboard = () => {
                             <p className="text-sm text-gray-400">AI-Powered Resume Intelligence</p>
                         </div>
                     </div>
-                    <button
-                        onClick={toggleTheme}
-                        className="p-2 rounded-full hover:bg-white hover:bg-opacity-10 transition-all text-white"
-                    >
-                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M16.243 16.243l.707.707M7.757 7.757l.707.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                    </button>
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={toggleTheme}
+                            className="p-2 rounded-full hover:bg-white hover:bg-opacity-10 transition-all text-white"
+                        >
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M16.243 16.243l.707.707M7.757 7.757l.707.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                        </button>
+                        <button
+                            onClick={() => { setChatMode('global'); setIsChatOpen(true); }}
+                            className="bg-primary-gold/10 hover:bg-primary-gold/20 text-primary-gold px-4 py-2 rounded-lg text-sm font-bold border border-primary-gold/30 transition-all flex items-center gap-2"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            AI Insights
+                        </button>
+                    </div>
                 </div>
             </motion.header>
 
@@ -305,6 +320,32 @@ const Dashboard = () => {
                                     placeholder="Enter project name..."
                                 />
                             </div>
+
+                            {/* RAG Quick Action Bar */}
+                            <div className="flex gap-4 mb-6">
+                                <button
+                                    onClick={() => { setChatMode('global'); setIsChatOpen(true); }}
+                                    className="flex-1 glass-card p-4 flex items-center justify-between group hover:border-primary-gold/40 transition-all"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-primary-gold/10 flex items-center justify-center text-primary-gold group-hover:scale-110 transition-transform">
+                                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                            </svg>
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="text-sm font-bold text-white uppercase tracking-tight">AI Talent Intelligence</div>
+                                            <div className="text-[10px] text-gray-500">Ask patterns, comparisons, or summaries</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-primary-gold opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </div>
+                                </button>
+                            </div>
+
                             <h2 className="text-sm text-gray-400 mb-2">Job Description</h2>
                             <textarea
                                 value={jobDescription}
@@ -559,6 +600,7 @@ const Dashboard = () => {
                                         {filteredResults.map((result, index) => (
                                             <ResultCard
                                                 key={index}
+                                                candidate_id={result.candidate_id}
                                                 filename={result.filename}
                                                 matchPercentage={result.match_percentage}
                                                 matchDetails={result.match_details}
@@ -566,6 +608,11 @@ const Dashboard = () => {
                                                 yoe={result.years_of_experience}
                                                 topStrengths={result.top_strengths}
                                                 onGenerateQuestions={handleGenerateQuestions}
+                                                onOpenChat={(id, name) => {
+                                                    setChatCandidate({ id, name });
+                                                    setChatMode('specific');
+                                                    setIsChatOpen(true);
+                                                }}
                                                 index={index}
                                             />
                                         ))}
@@ -586,6 +633,33 @@ const Dashboard = () => {
                     </div>
                 </div>
             </div>
+
+            {/* RAG Chat Component */}
+            <RAGChat 
+                isOpen={isChatOpen} 
+                onClose={() => setIsChatOpen(false)}
+                initialMode={chatMode}
+                candidateId={chatCandidate.id}
+                candidateName={chatCandidate.name}
+            />
+
+            {/* Floating Action Button */}
+            <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => { setChatMode('global'); setIsChatOpen(!isChatOpen); }}
+                className="fixed bottom-6 right-6 w-14 h-14 bg-primary-gold rounded-full shadow-[0_10px_30px_rgba(230,165,32,0.4)] flex items-center justify-center z-50 text-deep-bronze"
+            >
+                {isChatOpen ? (
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                ) : (
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                    </svg>
+                )}
+            </motion.button>
         </div>
     );
 };

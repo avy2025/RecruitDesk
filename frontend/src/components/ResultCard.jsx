@@ -6,7 +6,7 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } fro
  * ResultCard Component
  * Displays individual resume ranking result with glassmorphism design and AI insights
  */
-const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, topStrengths, index, onGenerateQuestions }) => {
+const ResultCard = ({ candidate_id, filename, matchPercentage, matchDetails, summary, yoe, topStrengths, index, onGenerateQuestions, onOpenChat }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [questions, setQuestions] = useState([]);
     const [fetchingQuestions, setFetchingQuestions] = useState(false);
@@ -16,6 +16,11 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
         A: value,
         fullMark: 100,
     }));
+
+    const handleOpenChat = (e) => {
+        e.stopPropagation();
+        if (onOpenChat) onOpenChat(candidate_id, filename);
+    };
 
     const handleGenerateQuestions = async (e) => {
         e.stopPropagation();
@@ -66,6 +71,18 @@ const ResultCard = ({ filename, matchPercentage, matchDetails, summary, yoe, top
                         <p className="text-sm text-gray-300 leading-relaxed">
                             <span className="text-primary-topaz font-semibold">Summary:</span> {summary || `Candidate with ${yoe || 0}+ years of experience and matches across key requirement sections.`}
                         </p>
+                    </div>
+                    
+                    <div className="flex gap-2 mt-3">
+                        <button
+                            onClick={handleOpenChat}
+                            className="text-[10px] bg-primary-gold/10 hover:bg-primary-gold/20 text-primary-gold border border-primary-gold/30 px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-2 group"
+                        >
+                            <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                            </svg>
+                            Ask AI Discovery
+                        </button>
                     </div>
                 </div>
 
