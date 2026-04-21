@@ -6,25 +6,19 @@ FastAPI application for AI-powered resume ranking using sentence transformers an
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sentence_transformers import SentenceTransformer, util
-from sklearn.metrics.pairwise import cosine_similarity
-import pdfplumber
 import tempfile
 import os
-from typing import List, Dict, Any
 import logging
 import spacy
-import numpy as np
 import re
 from typing import List, Dict, Any, Optional
-from datetime import datetime
 from rag.embedder import RAGEmbedder
 from rag.vector_store import RAGVectorStore
 from rag.loader import ResumeLoader, JobLoader
 from rag.matcher import CandidateMatcher
-from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of_experience, parse_resume_sections, nlp
+from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of_experience, parse_resume_sections
 from rag.llm_service import LLMService
 from rag.memory import ConversationMemory
-import asyncio
 from fastapi import BackgroundTasks
 
 # Configure logging
@@ -558,7 +552,6 @@ async def rag_query(data: Dict[str, Any], background_tasks: BackgroundTasks):
     """
     query = data.get("query")
     candidate_id = data.get("candidate_id")
-    filters = data.get("filters", {})
     session_id = data.get("session_id")
     
     if not query:
