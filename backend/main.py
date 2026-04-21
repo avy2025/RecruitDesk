@@ -23,6 +23,9 @@ from rag.loader import ResumeLoader, JobLoader
 from rag.matcher import CandidateMatcher
 from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of_experience, parse_resume_sections, nlp
 from rag.llm_service import LLMService
+from rag.memory import ConversationMemory
+import asyncio
+from fastapi import BackgroundTasks
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +56,7 @@ resume_loader = None
 job_loader = None
 candidate_matcher = None
 llm_service = None
+memory_store = None
 
 
 @app.on_event("startup")
@@ -103,10 +107,11 @@ async def load_models():
     
     resume_loader = ResumeLoader(vector_store, rag_embedder)
     
-    global job_loader, candidate_matcher, llm_service
+    global job_loader, candidate_matcher, llm_service, memory_store
     job_loader = JobLoader(vector_store, rag_embedder)
     candidate_matcher = CandidateMatcher(vector_store, rag_embedder)
     llm_service = LLMService()
+    memory_store = ConversationMemory(max_sessions=100, ttl_seconds=3600)
     
     logger.info("RAG system initialized successfully")
 
@@ -537,8 +542,16 @@ async def match_candidates(
         logger.error(f"Matching failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
 
+@app.post("/clear-chat")
+async def clear_chat(data: Dict[str, Any]):
+    """Manual session clear"""
+    session_id = data.get("session_id")
+    if session_id:
+        memory_store.clear_session(session_id)
+    return {"status": "success", "message": "Session cleared"}
+
 @app.post("/rag-query")
-async def rag_query(data: Dict[str, Any]):
+async def rag_query(data: Dict[str, Any], background_tasks: BackgroundTasks):
     """
     Unified RAG endpoint: Semantic search + LLM Answer Generation.
     Supports Global and Candidate-specific modes + Filters.
@@ -546,60 +559,95 @@ async def rag_query(data: Dict[str, Any]):
     query = data.get("query")
     candidate_id = data.get("candidate_id")
     filters = data.get("filters", {})
+    session_id = data.get("session_id")
     
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
         
+    # 1. Background Cleanup
+    background_tasks.add_task(memory_store.cleanup_expired)
+    
+    # 2. Session Initialization
+    session = memory_store.get_session(session_id)
+    session_id = session["session_id"]
+    history = session["history"]
+    last_filters = session["last_filters"]
+    last_candidates = session["last_candidates"]
+    
     try:
-        logger.info(f"Processing RAG query: {query} (Mode: {'Specific' if candidate_id else 'Global'})")
+        logger.info(f"Processing RAG query: {query} (Session: {session_id})")
         
-        # 1. Prepare search filters
+        # 3. Hybrid Intent & Query Rewriting
+        # Step A: Rule-based Filter Extraction
+        new_filters = llm_service.extract_intent(query)
+        # Merge with previous filters
+        active_filters = {**last_filters, **{k: v for k, v in new_filters.items() if v is not None}}
+        
+        # Step B: LLM Query Rewrite (Follow-up detection)
+        search_query = llm_service.rewrite_query(query, history, active_filters)
+        logger.info(f"Rewritten search query: {search_query}")
+
+        # 4. Retrieval Pipeline
         search_filters = {"type": "resume"}
         if candidate_id:
             search_filters["candidate_id"] = candidate_id
         
-        # Add optional filters from request
-        if filters.get("skills"):
-            search_filters["skills"] = filters["skills"]
-        if filters.get("min_experience"):
-            search_filters["min_experience"] = float(filters["min_experience"])
+        if active_filters.get("skills"):
+            search_filters["skills"] = active_filters["skills"]
+        if active_filters.get("min_experience"):
+            search_filters["min_experience"] = float(active_filters["min_experience"])
             
-        # 2. Retrieve relevant resume chunks
-        query_embedding = rag_embedder.embed_text(query)
-        
-        # Search top 20 candidate chunks (filtered)
-        retrieved_chunks = vector_store.search(
-            query_embedding, 
-            k=20, 
-            filter_dict=search_filters
-        )
+        query_embedding = rag_embedder.embed_text(search_query) # Use rewritten query for embeddings
+        retrieved_chunks = vector_store.search(query_embedding, k=20, filter_dict=search_filters)
         
         if not retrieved_chunks:
-            msg = "No matching candidates found with the specified filters." if filters or candidate_id else "No candidate resumes found in the database."
+            msg = "No matching candidates found with the specified filters."
             return {
                 "answer": msg,
+                "session_id": session_id,
                 "top_candidates": [],
                 "insights": "Zero results after filtering",
-                "confidence": "low"
+                "confidence": "low",
+                "active_filters": active_filters
             }
             
-        # 3. Run Matcher (Phase 3) for scoring context
-        # If candidate_id is specified, we match specifically against that candidate
-        # otherwise we match against top 5
+        # 5. Context Scoring
         matcher_top_k = 1 if candidate_id else 5
         match_results = candidate_matcher.match_candidates_to_job(
-            job_description=query, 
+            job_description=search_query, 
             top_k_candidates=matcher_top_k,
-            required_skills=filters.get("skills", []),
-            min_experience=float(filters.get("min_experience", 0))
+            required_skills=active_filters.get("skills", []),
+            min_experience=float(active_filters.get("min_experience", 0))
         )
         
-        # 4. Generate LLM Answer
+        # 6. Generate LLM Answer
         result = llm_service.query(
-            query=query, 
+            query=query, # Original query for answer generation
             retrieved_chunks=retrieved_chunks, 
-            matcher_results=match_results
+            matcher_results=match_results,
+            history=history,
+            last_filters=active_filters,
+            last_candidates=last_candidates
         )
+        
+        # 7. Update Memory
+        memory_store.add_message(session_id, "user", query)
+        memory_store.add_message(session_id, "ai", result.get("answer", ""))
+        
+        # Store refined filters from LLM response if available
+        llm_detected_filters = result.get("detected_filters", {})
+        if llm_detected_filters:
+            active_filters.update({k: v for k, v in llm_detected_filters.items() if v})
+            
+        memory_store.update_context(
+            session_id, 
+            filters=active_filters, 
+            candidates=result.get("top_candidates")
+        )
+        
+        # 8. Enrich result
+        result["session_id"] = session_id
+        result["active_filters"] = active_filters
         
         return result
         
