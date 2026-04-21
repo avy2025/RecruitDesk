@@ -1,7 +1,6 @@
-import os
-import json
 import logging
 import hashlib
+import re
 from typing import List, Dict, Any, Optional, Union, Tuple
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
@@ -110,24 +109,108 @@ class LLMService:
     def _get_cache_key(self, query: str, context_hash: str) -> str:
         return hashlib.md5(f"{query}:{context_hash}".encode()).hexdigest()
 
-    def query(self, query: str, retrieved_chunks: List[Any], matcher_results: Optional[Dict] = None) -> Dict[str, Any]:
+        is_comparison = any(word in query.lower() for word in ["compare", "difference", "versus", "vs", "between", "better"])
+        comparison_instruction = ""
+        if is_comparison:
+            comparison_instruction = (
+                "\n6. This is a COMPARISON query. Structure your answer to highlight key differences "
+                "and similarities between candidates in terms of skills, experience, and fit. "
+                "Use the provided structured candidate data for accurate comparisons."
+            )
+
+    def extract_intent(self, query: str) -> Dict[str, Any]:
         """
-        Generate a structured answer based on retrieved candidate context.
+        Hybrid Intent Extraction: Rule-based for filters, LLM as fallback.
+        """
+        filters = {"skills": [], "min_experience": None}
+        
+        # Rule 1: Experience (e.g., "5+ years", "only 3 years")
+        exp_match = re.search(r'(\d+)\s*\+?\s*years?', query.lower())
+        if exp_match:
+            filters["min_experience"] = float(exp_match.group(1))
+            
+        # Rule 2: Exclusions (simple heuristic)
+        if "exclude" in query.lower() or "no " in query.lower():
+            # This would normally need more complex NLP or LLM
+            pass
+            
+        return filters
+
+    def rewrite_query(self, query: str, history: List[Dict], last_filters: Dict) -> str:
+        """
+        Rewrites a follow-up query into a standalone version using conversation history.
+        """
+        if not history:
+            return query
+
+        # If it's a very short follow-up, it definitely needs rewriting
+        is_follow_up = len(query.split()) < 5 or any(word in query.lower() for word in ["those", "them", "they", "only", "about", "her", "him"])
+        
+        if not is_follow_up:
+            return query
+
+        system_instruction = (
+            "You are a query optimization assistant for a recruitment RAG system. "
+            "Your task is to rewrite user follow-up queries into standalone, descriptive search queries "
+            "that incorporate relevant context from the conversation history."
+        )
+        
+        history_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history[-3:]])
+        
+        prompt = (
+            f"CONVERSATION HISTORY:\n{history_context}\n\n"
+            f"CURRENT FILTERS: {last_filters}\n\n"
+            f"FOLLOW-UP QUERY: {query}\n\n"
+            "REWRITE this follow-up into a single standalone search query for a vector database. "
+            "Return ONLY the rewritten query string as JSON."
+            "\nExample: If user said 'Find React devs' then 'only experienced ones', rewrite to 'Experienced React developers'."
+            "\nFORMAT: {\"rewritten_query\": \"...\"}"
+        )
+
+        try:
+            raw = self.provider.generate_response(prompt, system_instruction)
+            parsed = self._robust_json_parse(raw)
+            return parsed.get("rewritten_query", query)
+        except:
+            return query
+
+    def query(self, query: str, retrieved_chunks: List[Any], 
+              matcher_results: Optional[Dict] = None, 
+              history: List[Dict] = None,
+              last_filters: Dict = None,
+              last_candidates: List[Dict] = None) -> Dict[str, Any]:
+        """
+        Generate a structured answer based on retrieved context and conversation history.
         """
         # 1. Prepare Context
-        from typing import Tuple
         context_str = ContextAggregator.aggregate_context(retrieved_chunks)
         
-        # Add Phase 3 Matcher results if available
+        # Add Phase 3 Matcher results
         matcher_context = ""
         if matcher_results and "candidates" in matcher_results:
             matcher_context = "\n### Pre-calculated Matcher Scores (Phase 3):\n"
             for cand in matcher_results["candidates"]:
                 matcher_context += f"- {cand['name']} (ID: {cand['candidate_id']}): Score {cand['score']}, Matched: {cand['matched_skills']}, Missing: {cand['missing_skills']}\n"
 
-        full_context = f"{context_str}\n{matcher_context}"
+        # Add History Context if available
+        history_context = ""
+        if history:
+            history_context = "\n### Recent Conversation History:\n"
+            for msg in history[-3:]: # last 3 turns
+                 history_context += f"- {msg['role'].upper()}: {msg['content']}\n"
+
+        # Add Structured Memory for consistency
+        structured_context = ""
+        if last_filters or last_candidates:
+            structured_context = "\n### Active Memory & Filter Context:\n"
+            if last_filters:
+                structured_context += f"Current Filters: {last_filters}\n"
+            if last_candidates:
+                structured_context += "Previously Discussed Candidates: " + ", ".join([c['name'] for c in last_candidates]) + "\n"
+
+        full_context = f"{structured_context}\n{history_context}\n{context_str}\n{matcher_context}"
         
-        # 2. Check Cache
+        # 2. Check Cache (Include history hash)
         context_hash = hashlib.md5(full_context.encode()).hexdigest()
         cache_key = self._get_cache_key(query, context_hash)
         if cache_key in self._cache:
@@ -139,40 +222,41 @@ class LLMService:
         comparison_instruction = ""
         if is_comparison:
             comparison_instruction = (
-                "\n6. This is a COMPARISON query. Structure your answer to highlight key differences "
-                "and similarities between candidates in terms of skills, experience, and fit. "
-                "Provide a clear recommendation if applicable."
+                "\n6. This is a COMPARISON query. Use the 'Previously Discussed Candidates' and 'Matcher Scores' "
+                "to provide a detailed comparison. Highlight trade-offs in skills and experience."
             )
 
         # 4. Construct Prompt
         system_instruction = (
             "You are an expert AI Technical Recruiter. Your goal is to analyze candidate resumes "
-            "provided in the context and answer queries factually and concisely.\n\n"
+            "provided in the context and answer queries factually and concisely. "
+            "Leverage the conversation history to provide contextual and follow-up answers.\n\n"
             "STRICT CONSTRAINTS:\n"
             "1. ONLY use the provided context. Do NOT use outside knowledge.\n"
-            "2. DO NOT hallucinate candidates or skills. If the data is not present, say 'insufficient data'.\n"
-            "3. If no relevant candidates are found in the context, return an answer stating no matches were found.\n"
+            "2. DO NOT repeat previous answers unnecessarily. Refer back to them if needed.\n"
+            "3. If context changed mid-conversation (e.g., new filters), acknowledge the change.\n"
             "4. Your output MUST be valid JSON.\n"
             f"5. For each candidate mentioned, include their candidate_id, score, reasoning, and matched_skills.{comparison_instruction}"
         )
 
         prompt = (
             f"USER QUERY: {query}\n\n"
-            f"CANDIDATE CONTEXT:\n{full_context}\n\n"
+            f"CANDIDATE AND CONVERSATION CONTEXT:\n{full_context}\n\n"
             "RESPONSE FORMAT (JSON):\n"
             "{\n"
-            "  \"answer\": \"Overall summary of findings\",\n"
+            "  \"answer\": \"Detailed summary answering the user query in context\",\n"
             "  \"top_candidates\": [\n"
             "    {\n"
             "      \"candidate_id\": \"id\",\n"
             "      \"name\": \"name\",\n"
             "      \"score\": 0.95,\n"
             "      \"matched_skills\": [\"skill1\", \"skill2\"],\n"
-            "      \"reasoning\": \"Why this candidate is a good/bad match based ONLY on context\"\n"
+            "      \"reasoning\": \"Context-aware reasoning why this candidate fits the query\"\n"
             "    }\n"
             "  ],\n"
-            "  \"insights\": \"Specific recruiter-level insights about the talent pool\",\n"
-            "  \"confidence\": \"high|medium|low\"\n"
+            "  \"insights\": \"Specific recruiter-level insights\",\n"
+            "  \"confidence\": \"high|medium|low\",\n"
+            "  \"detected_filters\": {\"skills\": [], \"min_experience\": 0}\n"
             "}"
         )
 
