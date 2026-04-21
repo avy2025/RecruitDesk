@@ -20,10 +20,67 @@ const RAGChat = ({ isOpen, onClose, initialMode = 'global', candidateId = null, 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [mode, setMode] = useState(initialMode);
+    const [sessionId, setSessionId] = useState(null);
+    const [activeFilters, setActiveFilters] = useState({});
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
     const API_URL = 'http://localhost:8000';
+
+    // LocalStorage Initialization
+    useEffect(() => {
+        if (!isOpen) return;
+        try {
+            const saved = localStorage.getItem('recruitdesk_chat_v2');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Only restore if the context matches
+                if (parsed.mode === initialMode && parsed.candidateId === candidateId) {
+                    setMessages(parsed.messages || messages);
+                    setSessionId(parsed.sessionId || null);
+                    setActiveFilters(parsed.activeFilters || {});
+                }
+            }
+        } catch (e) {
+            console.error("Local storage decode error", e);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, initialMode, candidateId]);
+
+    // LocalStorage Sync
+    useEffect(() => {
+        if (messages.length > 1) { // Only save if user has engaged
+            localStorage.setItem('recruitdesk_chat_v2', JSON.stringify({
+                sessionId,
+                messages,
+                activeFilters,
+                mode,
+                candidateId
+            }));
+        }
+    }, [messages, sessionId, activeFilters, mode, candidateId]);
+
+    const handleNewChat = async () => {
+        if (sessionId) {
+            try {
+                await axios.post(`${API_URL}/clear-chat`, { session_id: sessionId });
+            } catch (e) {
+                console.error("Failed to clear chat backend", e);
+            }
+        }
+        setSessionId(null);
+        setActiveFilters({});
+        setMessages([
+            {
+                role: 'ai',
+                content: mode === 'specific' 
+                    ? `I'm analyzing **${candidateName}**. How can I help you evaluate them for this role?`
+                    : "Hello! I'm your RecruitDesk Intelligence assistant. Ask me anything about the candidate pool or specific requirements.",
+                timestamp: new Date()
+            }
+        ]);
+        localStorage.removeItem('recruitdesk_chat_v2');
+    };
 
     const suggestions = mode === 'specific' 
         ? [
@@ -68,10 +125,18 @@ const RAGChat = ({ isOpen, onClose, initialMode = 'global', candidateId = null, 
             const response = await axios.post(`${API_URL}/rag-query`, {
                 query: text,
                 candidate_id: mode === 'specific' ? candidateId : null,
-                filters: {} // Can be expanded for skill/exp filtering
+                filters: {}, 
+                session_id: sessionId
             });
 
             const data = response.data;
+            
+            if (data.session_id && !sessionId) {
+                setSessionId(data.session_id);
+            }
+            if (data.active_filters) {
+                setActiveFilters(data.active_filters);
+            }
             
             // Format AI message with source attribution
             const aiMessage = {
@@ -107,26 +172,57 @@ const RAGChat = ({ isOpen, onClose, initialMode = 'global', candidateId = null, 
                     className="fixed bottom-24 right-6 w-[450px] max-w-[90vw] h-[650px] max-h-[80vh] z-50 flex flex-col glass-card border-primary-gold/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden"
                 >
                     {/* Header */}
-                    <div className="p-4 border-b border-white/10 bg-gradient-to-r from-primary-gold/10 to-transparent flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary-gold flex items-center justify-center">
-                                <svg className="w-5 h-5 text-deep-bronze" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">RecruitDesk Intelligence</h3>
-                                <div className="flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                                    <span className="text-[10px] text-gray-400 capitalize">{mode} Context Mode</span>
+                    <div className="p-4 border-b border-white/10 bg-gradient-to-r from-primary-gold/10 to-transparent">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-primary-gold flex items-center justify-center">
+                                    <svg className="w-5 h-5 text-deep-bronze" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">RecruitDesk Intelligence</h3>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                        <span className="text-[10px] text-gray-400 capitalize">{mode} Context Mode</span>
+                                    </div>
                                 </div>
                             </div>
+                            <div className="flex items-center gap-2">
+                                <button onClick={handleNewChat} className="text-[10px] px-2 py-1 bg-white/5 hover:bg-white/10 rounded text-gray-300 transition-colors flex items-center gap-1">
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    Reset
+                                </button>
+                                <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors ml-2">
+                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
-                        <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
+                        
+                        {/* Context Hints */}
+                        {(activeFilters?.skills?.length > 0 || activeFilters?.min_experience > 0) && (
+                            <motion.div 
+                                initial={{ opacity: 0, height: 0 }} 
+                                animate={{ opacity: 1, height: 'auto' }} 
+                                className="mt-3 flex flex-wrap gap-2"
+                            >
+                                <span className="text-[9px] text-gray-500 uppercase tracking-widest self-center">Active Context:</span>
+                                {activeFilters.skills?.map(s => (
+                                    <span key={s} className="px-2 py-0.5 rounded-full bg-primary-gold/10 text-primary-gold text-[10px] border border-primary-gold/20">
+                                        {s}
+                                    </span>
+                                ))}
+                                {activeFilters.min_experience > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-primary-gold/10 text-primary-gold text-[10px] border border-primary-gold/20">
+                                        {activeFilters.min_experience}+ Years
+                                    </span>
+                                )}
+                            </motion.div>
+                        )}
                     </div>
 
                     {/* Messages Area */}
