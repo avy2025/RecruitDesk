@@ -569,79 +569,127 @@ async def rag_query(data: Dict[str, Any], background_tasks: BackgroundTasks):
     
     try:
         logger.info(f"Processing RAG query: {query} (Session: {session_id})")
-        
-        # 3. Hybrid Intent & Query Rewriting
-        # Step A: Rule-based Filter Extraction
+
+        # 3A. Rule-based filter extraction from current query
         new_filters = llm_service.extract_intent(query)
-        # Merge with previous filters
-        active_filters = {**last_filters, **{k: v for k, v in new_filters.items() if v is not None}}
-        
-        # Step B: LLM Query Rewrite (Follow-up detection)
-        search_query = llm_service.rewrite_query(query, history, active_filters)
+
+        # 3B. Context drift detection — compare new skills vs previous skills
+        drift_action = llm_service.detect_context_drift(
+            new_skills=new_filters.get("skills", []),
+            previous_skills=last_filters.get("skills", [])
+        )
+        drift_notice = None
+
+        if drift_action == "reset":
+            memory_store.full_reset_filters(session_id)
+            # Reload session to get cleared filters
+            session = memory_store.get_session(session_id)
+            last_filters = session["last_filters"]
+            last_candidates = session["last_candidates"]
+            drift_notice = "context_reset"
+            logger.info(f"Context drift RESET for session {session_id}")
+        elif drift_action == "merge":
+            drift_notice = "context_merged"
+            logger.info(f"Context drift MERGE for session {session_id}")
+        # "same" → keep existing context unchanged
+
+        # 3C. Merge new filters into active context
+        active_filters = dict(last_filters)
+        if new_filters.get("skills"):
+            active_filters["skills"] = list(
+                set(active_filters.get("skills", [])) | set(new_filters["skills"])
+            )
+        if new_filters.get("min_experience") is not None:
+            active_filters["min_experience"] = max(
+                float(active_filters.get("min_experience") or 0),
+                float(new_filters["min_experience"])
+            )
+
+        # 3D. LLM Query Rewrite (follow-up detection + filter injection)
+        # Use token-aware recent history
+        recent_history = memory_store.get_recent_history(session_id)
+        search_query = llm_service.rewrite_query(
+            query, recent_history, active_filters, session_id=session_id
+        )
         logger.info(f"Rewritten search query: {search_query}")
 
         # 4. Retrieval Pipeline
         search_filters = {"type": "resume"}
         if candidate_id:
             search_filters["candidate_id"] = candidate_id
-        
         if active_filters.get("skills"):
             search_filters["skills"] = active_filters["skills"]
         if active_filters.get("min_experience"):
             search_filters["min_experience"] = float(active_filters["min_experience"])
-            
-        query_embedding = rag_embedder.embed_text(search_query) # Use rewritten query for embeddings
+
+        query_embedding = rag_embedder.embed_text(search_query)
         retrieved_chunks = vector_store.search(query_embedding, k=20, filter_dict=search_filters)
-        
+
         if not retrieved_chunks:
-            msg = "No matching candidates found with the specified filters."
+            # Record user message even when no results found
+            memory_store.add_message(session_id, "user", query)
+            memory_store.add_message(
+                session_id, "ai",
+                "No matching candidates found with the specified filters."
+            )
             return {
-                "answer": msg,
+                "answer": "No matching candidates found with the specified filters.",
                 "session_id": session_id,
                 "top_candidates": [],
-                "insights": "Zero results after filtering",
+                "insights": "",
                 "confidence": "low",
-                "active_filters": active_filters
+                "active_filters": active_filters,
+                "drift_notice": drift_notice,
             }
-            
+
         # 5. Context Scoring
         matcher_top_k = 1 if candidate_id else 5
         match_results = candidate_matcher.match_candidates_to_job(
-            job_description=search_query, 
+            job_description=search_query,
             top_k_candidates=matcher_top_k,
             required_skills=active_filters.get("skills", []),
-            min_experience=float(active_filters.get("min_experience", 0))
+            min_experience=float(active_filters.get("min_experience") or 0)
         )
-        
-        # 6. Generate LLM Answer
+
+        # 6. Generate LLM Answer (pass token-aware history)
         result = llm_service.query(
-            query=query, # Original query for answer generation
-            retrieved_chunks=retrieved_chunks, 
+            query=query,
+            retrieved_chunks=retrieved_chunks,
             matcher_results=match_results,
-            history=history,
+            history=recent_history,
             last_filters=active_filters,
             last_candidates=last_candidates
         )
-        
+
         # 7. Update Memory
         memory_store.add_message(session_id, "user", query)
         memory_store.add_message(session_id, "ai", result.get("answer", ""))
-        
-        # Store refined filters from LLM response if available
+
+        # Merge any LLM-detected filters back into context
         llm_detected_filters = result.get("detected_filters", {})
         if llm_detected_filters:
-            active_filters.update({k: v for k, v in llm_detected_filters.items() if v})
-            
+            if llm_detected_filters.get("skills"):
+                active_filters["skills"] = list(
+                    set(active_filters.get("skills", []))
+                    | set(llm_detected_filters["skills"])
+                )
+            if llm_detected_filters.get("min_experience"):
+                active_filters["min_experience"] = max(
+                    float(active_filters.get("min_experience") or 0),
+                    float(llm_detected_filters["min_experience"])
+                )
+
         memory_store.update_context(
-            session_id, 
-            filters=active_filters, 
+            session_id,
+            filters=active_filters,
             candidates=result.get("top_candidates")
         )
-        
+
         # 8. Enrich result
         result["session_id"] = session_id
         result["active_filters"] = active_filters
-        
+        result["drift_notice"] = drift_notice
+
         return result
         
     except Exception as e:
