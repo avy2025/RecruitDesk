@@ -1,3 +1,5 @@
+import os
+import json
 import logging
 import hashlib
 import re
@@ -12,11 +14,32 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Common skill keyword set for intent extraction (extends parser's DB if
+# needed; kept here to avoid circular imports)
+# ---------------------------------------------------------------------------
+_COMMON_SKILLS = {
+    "python", "java", "javascript", "typescript", "react", "angular", "vue",
+    "node", "nodejs", "django", "flask", "fastapi", "spring", "express",
+    "sql", "postgresql", "mysql", "mongodb", "redis", "elasticsearch",
+    "aws", "azure", "gcp", "docker", "kubernetes", "terraform", "ansible",
+    "git", "ci/cd", "devops", "graphql", "rest", "microservices",
+    "machine learning", "deep learning", "nlp", "pytorch", "tensorflow",
+    "pandas", "numpy", "scikit-learn", "spark", "hadoop",
+    "c++", "c#", "go", "golang", "rust", "kotlin", "swift",
+    "html", "css", "sass", "tailwind", "nextjs", "nuxt",
+    "linux", "unix", "bash", "shell", "jenkins", "github actions",
+    "kafka", "rabbitmq", "celery", "airflow",
+    "agile", "scrum", "jira", "figma",
+}
+
+
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
     @abstractmethod
     def generate_response(self, prompt: str, system_instruction: str = "") -> str:
         pass
+
 
 class GeminiProvider(LLMProvider):
     """Google Gemini implementation."""
@@ -32,8 +55,6 @@ class GeminiProvider(LLMProvider):
 
     def generate_response(self, prompt: str, system_instruction: str = "") -> str:
         try:
-            # For Gemini 1.5, we can use system_instruction in the constructor or content
-            # Here we just prepend it if provided for simplicity, or use formal system_instruction if available
             model = self.model
             if system_instruction:
                 model = genai.GenerativeModel(
@@ -41,30 +62,31 @@ class GeminiProvider(LLMProvider):
                     system_instruction=system_instruction,
                     generation_config={"response_mime_type": "application/json"}
                 )
-            
             response = model.generate_content(prompt)
             return response.text
         except Exception as e:
             logger.error(f"Gemini API error: {str(e)}")
             return json.dumps({"error": "LLM generation failed", "detail": str(e)})
 
+
 class ContextAggregator:
     """Helper to group and merge RAG chunks for LLM context."""
-    
+
     @staticmethod
-    def aggregate_context(chunks: List[Tuple[Dict[str, Any], float]], top_n_per_candidate: int = 3) -> str:
+    def aggregate_context(
+        chunks: List[Tuple[Dict[str, Any], float]],
+        top_n_per_candidate: int = 3
+    ) -> str:
         """
         Groups chunks by candidate_id and returns a formatted string.
         """
-        candidates = {}
-        
+        candidates: Dict[str, Any] = {}
+
         for meta, score in chunks:
-            # Metadata is nested in RAGDocument.metadata if stored via matcher/loader
-            # actually RAGVectorStore returns the dict representation of RAGDocument
             doc_meta = meta.get("metadata", {})
             cand_id = doc_meta.get("candidate_id", "unknown")
             cand_name = doc_meta.get("name", "Unknown Candidate")
-            
+
             if cand_id not in candidates:
                 candidates[cand_id] = {
                     "name": cand_name,
@@ -72,11 +94,10 @@ class ContextAggregator:
                     "skills": doc_meta.get("skills", []),
                     "chunks": []
                 }
-            
+
             if len(candidates[cand_id]["chunks"]) < top_n_per_candidate:
                 candidates[cand_id]["chunks"].append(meta.get("text", ""))
 
-        # Format context string
         context_parts = []
         for cand_id, data in candidates.items():
             cand_str = f"### Candidate: {data['name']} (ID: {cand_id})\n"
@@ -86,157 +107,333 @@ class ContextAggregator:
             for i, chunk in enumerate(data["chunks"]):
                 cand_str += f"- [Chunk {i+1}]: {chunk}\n"
             context_parts.append(cand_str)
-            
+
         return "\n\n".join(context_parts)
+
+
+# ---------------------------------------------------------------------------
+# Token estimation
+# ---------------------------------------------------------------------------
+
+def _estimate_tokens(text: str) -> int:
+    """Rough estimate: words × 1.3."""
+    return int(len(text.split()) * 1.3)
+
+
+def _trim_history_to_tokens(
+    history: List[Dict[str, str]],
+    max_tokens: int = 2000,
+    hard_cap: int = 15,
+) -> List[Dict[str, str]]:
+    """
+    Trim a history list so that:
+    1. Total token count stays under `max_tokens`.
+    2. Message count stays under `hard_cap`.
+    System / summary messages are always kept at the front.
+    """
+    # Separate system/summary messages from regular turns
+    system_msgs = [m for m in history if m.get("role") == "system"]
+    regular_msgs = [m for m in history if m.get("role") != "system"]
+
+    # Apply hard cap first (keep most recent)
+    if len(regular_msgs) > hard_cap:
+        regular_msgs = regular_msgs[-hard_cap:]
+
+    # Then apply token budget from the end (most recent first)
+    used = sum(_estimate_tokens(m.get("content", "")) for m in system_msgs)
+    trimmed: List[Dict[str, str]] = []
+    for msg in reversed(regular_msgs):
+        tokens = _estimate_tokens(msg.get("content", ""))
+        if used + tokens > max_tokens:
+            break
+        trimmed.insert(0, msg)
+        used += tokens
+
+    return system_msgs + trimmed
+
 
 class LLMService:
     """
     Main service for AI Recruiter Intelligence.
     Handles RAG integration, strict prompting, and output formatting.
     """
+
     def __init__(self, provider_type: str = None):
         if provider_type is None:
             provider_type = os.getenv("LLM_PROVIDER", "gemini").lower()
-            
+
         if provider_type == "gemini":
             self.provider = GeminiProvider()
         else:
-            # Default to Gemini for now as per user request
             self.provider = GeminiProvider()
-            
-        self._cache = {} # Simple in-memory cache for queries
+
+        # In-memory caches
+        self._query_cache: Dict[str, Any] = {}           # Keyed by query+context hash
+        self._rewrite_cache: Dict[str, str] = {}         # Per-session: query -> rewritten
+
+    # ------------------------------------------------------------------
+    # Cache helpers
+    # ------------------------------------------------------------------
 
     def _get_cache_key(self, query: str, context_hash: str) -> str:
         return hashlib.md5(f"{query}:{context_hash}".encode()).hexdigest()
 
-        is_comparison = any(word in query.lower() for word in ["compare", "difference", "versus", "vs", "between", "better"])
-        comparison_instruction = ""
-        if is_comparison:
-            comparison_instruction = (
-                "\n6. This is a COMPARISON query. Structure your answer to highlight key differences "
-                "and similarities between candidates in terms of skills, experience, and fit. "
-                "Use the provided structured candidate data for accurate comparisons."
-            )
+    def _get_rewrite_key(self, session_id: str, query: str) -> str:
+        return hashlib.md5(f"{session_id}:{query}".encode()).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Intent extraction
+    # ------------------------------------------------------------------
 
     def extract_intent(self, query: str) -> Dict[str, Any]:
         """
-        Hybrid Intent Extraction: Rule-based for filters, LLM as fallback.
+        Hybrid Intent Extraction: Rule-based for filters.
+        Extracts both experience requirements and explicitly mentioned skills.
         """
-        filters = {"skills": [], "min_experience": None}
-        
-        # Rule 1: Experience (e.g., "5+ years", "only 3 years")
-        exp_match = re.search(r'(\d+)\s*\+?\s*years?', query.lower())
+        filters: Dict[str, Any] = {"skills": [], "min_experience": None}
+        query_lower = query.lower()
+
+        # Rule 1: Experience (e.g., "5+ years", "at least 3 years")
+        exp_match = re.search(
+            r'(?:at\s+least\s+)?(\d+)\s*\+?\s*years?',
+            query_lower
+        )
         if exp_match:
             filters["min_experience"] = float(exp_match.group(1))
-            
-        # Rule 2: Exclusions (simple heuristic)
-        if "exclude" in query.lower() or "no " in query.lower():
-            # This would normally need more complex NLP or LLM
-            pass
-            
+
+        # Rule 2: Skill detection from known keyword set
+        detected_skills = []
+        for skill in _COMMON_SKILLS:
+            # Use word-boundary-aware matching for multi-word and single-word skills
+            pattern = r'\b' + re.escape(skill) + r'\b'
+            if re.search(pattern, query_lower):
+                detected_skills.append(skill)
+
+        if detected_skills:
+            filters["skills"] = detected_skills
+
         return filters
 
-    def rewrite_query(self, query: str, history: List[Dict], last_filters: Dict) -> str:
+    # ------------------------------------------------------------------
+    # Context drift detection
+    # ------------------------------------------------------------------
+
+    def detect_context_drift(
+        self,
+        new_skills: List[str],
+        previous_skills: List[str],
+    ) -> str:
         """
-        Rewrites a follow-up query into a standalone version using conversation history.
+        Determines whether the query represents a context drift.
+
+        Returns:
+          - "reset"  : Clearly new topic (no meaningful overlap)
+          - "merge"  : Partial overlap — keep existing context and merge
+          - "same"   : Same or very similar topic — no change needed
         """
+        if not new_skills or not previous_skills:
+            # No new skills detected or no prior context — nothing to drift from
+            return "same"
+
+        new_set = set(s.lower() for s in new_skills)
+        prev_set = set(s.lower() for s in previous_skills)
+
+        overlap = new_set & prev_set
+        overlap_ratio = len(overlap) / max(len(new_set), len(prev_set))
+
+        if overlap_ratio >= 0.5:
+            return "same"      # Majority overlap — stay in context
+        elif overlap_ratio > 0:
+            return "merge"     # Partial overlap — blend contexts
+        else:
+            # Zero overlap: only reset if new_skills contains a clearly dominant
+            # different topic (more than 1 new skill signals intentional pivot)
+            if len(new_set - prev_set) >= 2:
+                return "reset"
+            return "merge"     # Single new skill might just be additive
+
+    # ------------------------------------------------------------------
+    # Query rewriting
+    # ------------------------------------------------------------------
+
+    def rewrite_query(
+        self,
+        query: str,
+        history: List[Dict],
+        last_filters: Dict,
+        session_id: str = "",
+    ) -> str:
+        """
+        Rewrites a follow-up query into a standalone version using
+        conversation history and active filters.
+        Uses session-scoped cache to avoid redundant LLM calls.
+        """
+        # Cache check (session + original query)
+        cache_key = self._get_rewrite_key(session_id, query)
+        if cache_key in self._rewrite_cache:
+            logger.debug(f"Rewrite cache hit for query: {query[:50]}")
+            return self._rewrite_cache[cache_key]
+
         if not history:
             return query
 
-        # If it's a very short follow-up, it definitely needs rewriting
-        is_follow_up = len(query.split()) < 5 or any(word in query.lower() for word in ["those", "them", "they", "only", "about", "her", "him"])
-        
+        # Heuristic: is this a follow-up?
+        is_follow_up = (
+            len(query.split()) < 6
+            or any(
+                word in query.lower()
+                for word in ["those", "them", "they", "only", "about", "her",
+                             "him", "these", "that", "this", "also", "instead",
+                             "exclude", "without", "more", "better"]
+            )
+        )
+
         if not is_follow_up:
+            self._rewrite_cache[cache_key] = query
             return query
+
+        # Trim history before sending to LLM
+        trimmed = _trim_history_to_tokens(history, max_tokens=800, hard_cap=6)
+        history_context = "\n".join(
+            [f"{m['role'].upper()}: {m['content']}" for m in trimmed]
+        )
+
+        # Build filter context string for injection
+        filter_parts = []
+        if last_filters.get("skills"):
+            filter_parts.append(f"Skills required: {', '.join(last_filters['skills'])}")
+        if last_filters.get("min_experience"):
+            filter_parts.append(f"Minimum experience: {last_filters['min_experience']} years")
+        filter_str = "; ".join(filter_parts) if filter_parts else "None"
 
         system_instruction = (
             "You are a query optimization assistant for a recruitment RAG system. "
-            "Your task is to rewrite user follow-up queries into standalone, descriptive search queries "
-            "that incorporate relevant context from the conversation history."
+            "Rewrite follow-up queries into complete, standalone search queries "
+            "that incorporate relevant context from conversation history AND active filters."
         )
-        
-        history_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history[-3:]])
-        
+
         prompt = (
             f"CONVERSATION HISTORY:\n{history_context}\n\n"
-            f"CURRENT FILTERS: {last_filters}\n\n"
+            f"ACTIVE FILTERS: {filter_str}\n\n"
             f"FOLLOW-UP QUERY: {query}\n\n"
-            "REWRITE this follow-up into a single standalone search query for a vector database. "
-            "Return ONLY the rewritten query string as JSON."
-            "\nExample: If user said 'Find React devs' then 'only experienced ones', rewrite to 'Experienced React developers'."
-            "\nFORMAT: {\"rewritten_query\": \"...\"}"
+            "Rewrite this follow-up into a single, descriptive standalone search query "
+            "that respects the active filters above. "
+            "The rewritten query must NOT contradict the active filters.\n"
+            "Example: filters=React, 5+ years; query='only senior ones' "
+            "→ 'Senior React developers with 5+ years of experience'\n"
+            'FORMAT: {"rewritten_query": "..."}'
         )
 
         try:
             raw = self.provider.generate_response(prompt, system_instruction)
             parsed = self._robust_json_parse(raw)
-            return parsed.get("rewritten_query", query)
-        except:
-            return query
+            rewritten = parsed.get("rewritten_query", query)
+        except Exception:
+            rewritten = query
 
-    def query(self, query: str, retrieved_chunks: List[Any], 
-              matcher_results: Optional[Dict] = None, 
-              history: List[Dict] = None,
-              last_filters: Dict = None,
-              last_candidates: List[Dict] = None) -> Dict[str, Any]:
+        self._rewrite_cache[cache_key] = rewritten
+        return rewritten
+
+    # ------------------------------------------------------------------
+    # Main query generation
+    # ------------------------------------------------------------------
+
+    def query(
+        self,
+        query: str,
+        retrieved_chunks: List[Any],
+        matcher_results: Optional[Dict] = None,
+        history: List[Dict] = None,
+        last_filters: Dict = None,
+        last_candidates: List[Dict] = None,
+    ) -> Dict[str, Any]:
         """
-        Generate a structured answer based on retrieved context and conversation history.
+        Generate a structured answer based on retrieved context and
+        conversation history.
         """
+        history = history or []
+        last_filters = last_filters or {}
+        last_candidates = last_candidates or []
+
         # 1. Prepare Context
         context_str = ContextAggregator.aggregate_context(retrieved_chunks)
-        
-        # Add Phase 3 Matcher results
+
+        # Matcher context
         matcher_context = ""
         if matcher_results and "candidates" in matcher_results:
-            matcher_context = "\n### Pre-calculated Matcher Scores (Phase 3):\n"
+            matcher_context = "\n### Pre-calculated Matcher Scores:\n"
             for cand in matcher_results["candidates"]:
-                matcher_context += f"- {cand['name']} (ID: {cand['candidate_id']}): Score {cand['score']}, Matched: {cand['matched_skills']}, Missing: {cand['missing_skills']}\n"
+                matcher_context += (
+                    f"- {cand['name']} (ID: {cand['candidate_id']}): "
+                    f"Score {cand['score']}, "
+                    f"Matched: {cand['matched_skills']}, "
+                    f"Missing: {cand['missing_skills']}\n"
+                )
 
-        # Add History Context if available
+        # Trim history to token budget
+        trimmed_history = _trim_history_to_tokens(history, max_tokens=1200, hard_cap=10)
         history_context = ""
-        if history:
+        if trimmed_history:
             history_context = "\n### Recent Conversation History:\n"
-            for msg in history[-3:]: # last 3 turns
-                 history_context += f"- {msg['role'].upper()}: {msg['content']}\n"
+            for msg in trimmed_history:
+                history_context += f"- {msg['role'].upper()}: {msg['content']}\n"
 
-        # Add Structured Memory for consistency
+        # Structured memory context
         structured_context = ""
         if last_filters or last_candidates:
             structured_context = "\n### Active Memory & Filter Context:\n"
             if last_filters:
-                structured_context += f"Current Filters: {last_filters}\n"
+                structured_context += f"Current Filters: {json.dumps(last_filters)}\n"
             if last_candidates:
-                structured_context += "Previously Discussed Candidates: " + ", ".join([c['name'] for c in last_candidates]) + "\n"
+                cand_lines = [
+                    f"  - {c['name']} (ID: {c.get('candidate_id', 'N/A')}, "
+                    f"Score: {c.get('score', 'N/A')}, "
+                    f"Skills: {', '.join(c.get('matched_skills', []))})"
+                    for c in last_candidates
+                ]
+                structured_context += (
+                    "Previously Discussed Candidates:\n"
+                    + "\n".join(cand_lines) + "\n"
+                )
 
-        full_context = f"{structured_context}\n{history_context}\n{context_str}\n{matcher_context}"
-        
-        # 2. Check Cache (Include history hash)
+        full_context = (
+            f"{structured_context}\n{history_context}\n"
+            f"{context_str}\n{matcher_context}"
+        )
+
+        # 2. Cache check
         context_hash = hashlib.md5(full_context.encode()).hexdigest()
         cache_key = self._get_cache_key(query, context_hash)
-        if cache_key in self._cache:
+        if cache_key in self._query_cache:
             logger.info("Serving query response from cache")
-            return self._cache[cache_key]
+            return self._query_cache[cache_key]
 
-        # 3. Detect Comparison Query
-        is_comparison = any(word in query.lower() for word in ["compare", "difference", "versus", "vs", "between", "better"])
+        # 3. Detect query type
+        is_comparison = any(
+            word in query.lower()
+            for word in ["compare", "difference", "versus", "vs", "between", "better"]
+        )
         comparison_instruction = ""
         if is_comparison:
             comparison_instruction = (
-                "\n6. This is a COMPARISON query. Use the 'Previously Discussed Candidates' and 'Matcher Scores' "
-                "to provide a detailed comparison. Highlight trade-offs in skills and experience."
+                "\n6. This is a COMPARISON query. Use the 'Previously Discussed Candidates' "
+                "and 'Matcher Scores' to provide a detailed comparison. "
+                "Highlight trade-offs in skills and experience."
             )
 
-        # 4. Construct Prompt
+        # 4. Construct prompt
         system_instruction = (
-            "You are an expert AI Technical Recruiter. Your goal is to analyze candidate resumes "
+            "You are an expert AI Technical Recruiter. Analyze candidate resumes "
             "provided in the context and answer queries factually and concisely. "
-            "Leverage the conversation history to provide contextual and follow-up answers.\n\n"
+            "Leverage conversation history for follow-up answers.\n\n"
             "STRICT CONSTRAINTS:\n"
             "1. ONLY use the provided context. Do NOT use outside knowledge.\n"
-            "2. DO NOT repeat previous answers unnecessarily. Refer back to them if needed.\n"
-            "3. If context changed mid-conversation (e.g., new filters), acknowledge the change.\n"
-            "4. Your output MUST be valid JSON.\n"
-            f"5. For each candidate mentioned, include their candidate_id, score, reasoning, and matched_skills.{comparison_instruction}"
+            "2. Do NOT hallucinate candidates. If a name is not in context, say so.\n"
+            "3. DO NOT repeat previous answers unnecessarily.\n"
+            "4. If context changed mid-conversation (new filters), acknowledge it.\n"
+            "5. Interpret follow-up queries correctly using conversation history.\n"
+            f"6. For each candidate mentioned, include candidate_id, score, "
+            f"reasoning, and matched_skills.{comparison_instruction}"
         )
 
         prompt = (
@@ -244,34 +441,36 @@ class LLMService:
             f"CANDIDATE AND CONVERSATION CONTEXT:\n{full_context}\n\n"
             "RESPONSE FORMAT (JSON):\n"
             "{\n"
-            "  \"answer\": \"Detailed summary answering the user query in context\",\n"
-            "  \"top_candidates\": [\n"
+            '  "answer": "Detailed summary answering the user query in context",\n'
+            '  "top_candidates": [\n'
             "    {\n"
-            "      \"candidate_id\": \"id\",\n"
-            "      \"name\": \"name\",\n"
-            "      \"score\": 0.95,\n"
-            "      \"matched_skills\": [\"skill1\", \"skill2\"],\n"
-            "      \"reasoning\": \"Context-aware reasoning why this candidate fits the query\"\n"
+            '      "candidate_id": "id",\n'
+            '      "name": "name",\n'
+            '      "score": 0.95,\n'
+            '      "matched_skills": ["skill1", "skill2"],\n'
+            '      "reasoning": "Context-aware reasoning why this candidate fits"\n'
             "    }\n"
             "  ],\n"
-            "  \"insights\": \"Specific recruiter-level insights\",\n"
-            "  \"confidence\": \"high|medium|low\",\n"
-            "  \"detected_filters\": {\"skills\": [], \"min_experience\": 0}\n"
+            '  "insights": "Specific recruiter-level insights or empty string",\n'
+            '  "confidence": "high|medium|low",\n'
+            '  "detected_filters": {"skills": [], "min_experience": 0}\n'
             "}"
         )
 
-        # 4. Call LLM
+        # 5. Call LLM
         raw_response = self.provider.generate_response(prompt, system_instruction)
-        
-        # 5. Parse and Format
+
+        # 6. Parse and format
         try:
             parsed = self._robust_json_parse(raw_response)
-            
-            # Simple check for "no match"
+
             if not parsed.get("top_candidates") and "no" in parsed.get("answer", "").lower():
-                parsed["answer"] = "No strong matches found based on the provided query and candidate database."
-            
-            self._cache[cache_key] = parsed
+                parsed["answer"] = (
+                    "No strong matches found based on the provided query "
+                    "and candidate database."
+                )
+
+            self._query_cache[cache_key] = parsed
             return parsed
         except Exception as e:
             logger.error(f"Failed to parse LLM response: {str(e)}")
@@ -279,20 +478,21 @@ class LLMService:
                 "answer": "Error processing the query. The AI response was malformed.",
                 "top_candidates": [],
                 "insights": str(e),
-                "confidence": "low"
+                "confidence": "low",
             }
+
+    # ------------------------------------------------------------------
+    # JSON parsing helper
+    # ------------------------------------------------------------------
 
     def _robust_json_parse(self, text: str) -> Dict[str, Any]:
         """Attempts to extract and parse JSON from LLM output."""
-        try:
-            # Clean possible markdown formatting
-            clean_text = text.strip()
-            if clean_text.startswith("```json"):
-                clean_text = clean_text[7:]
-            if clean_text.endswith("```"):
-                clean_text = clean_text[:-3]
-            
-            return json.loads(clean_text)
-        except json.JSONDecodeError:
-            # Fallback: simple regex or manual fix if needed (skipping for now)
-            raise
+        clean_text = text.strip()
+        # Strip markdown code fences
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        elif clean_text.startswith("```"):
+            clean_text = clean_text[3:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+        return json.loads(clean_text.strip())
