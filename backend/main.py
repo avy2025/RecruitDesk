@@ -19,6 +19,7 @@ from rag.matcher import CandidateMatcher
 from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of_experience, parse_resume_sections
 from rag.llm_service import LLMService
 from rag.memory import ConversationMemory
+from decision_engine import HiringDecisionEngine
 from fastapi import BackgroundTasks
 
 # Configure logging
@@ -51,6 +52,7 @@ job_loader = None
 candidate_matcher = None
 llm_service = None
 memory_store = None
+decision_engine = HiringDecisionEngine()
 
 
 @app.on_event("startup")
@@ -254,14 +256,12 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
     }
 
 
-@app.post("/rank-resumes")
-async def rank_resumes(
-    job_description: str = Form(...),
-    resumes: List[UploadFile] = File(...)
-):
-    """
-    Rank resumes based on hybrid matching algorithm
-    """
+async def _rank_resumes_internal(
+    job_description: str,
+    resumes: List[UploadFile],
+    include_internal_fields: bool = False,
+) -> Dict[str, Any]:
+    """Shared ranker used by /rank-resumes and /hiring-decision."""
     # Basic Input Sanitization
     job_description = re.sub(r'[^\x00-\x7F]+', ' ', job_description) # Remove non-ASCII
     job_description = job_description.strip()
@@ -361,7 +361,11 @@ async def rank_resumes(
                     "missing_skills": match_data['missing_skills'],
                     "section_breakdown": match_data['section_breakdown'],
                     "match_reasons": match_reasons
-                }
+                },
+                "_internal": {
+                    "resume_text": resume_text,
+                    "education_text": sections.get("education", ""),
+                },
             })
             
             logger.info(f"{resume_file.filename}: {match_data['final_score']}% match (ID: {candidate_id})")
@@ -372,7 +376,9 @@ async def rank_resumes(
         return {
             "success": True,
             "total_resumes": len(results),
-            "ranked_resumes": results
+            "ranked_resumes": results if include_internal_fields else [
+                {k: v for k, v in r.items() if k != "_internal"} for r in results
+            ]
         }
         
     except Exception as e:
@@ -387,6 +393,68 @@ async def rank_resumes(
                     os.remove(temp_file_path)
             except Exception as e:
                 logger.warning(f"Failed to delete temporary file {temp_file_path}: {str(e)}")
+
+
+@app.post("/rank-resumes")
+async def rank_resumes(
+    job_description: str = Form(...),
+    resumes: List[UploadFile] = File(...)
+):
+    """
+    Rank resumes based on hybrid matching algorithm
+    """
+    return await _rank_resumes_internal(
+        job_description=job_description,
+        resumes=resumes,
+        include_internal_fields=False,
+    )
+
+
+@app.post("/hiring-decision")
+async def hiring_decision(
+    job_description: str = Form(...),
+    resumes: List[UploadFile] = File(...)
+):
+    """
+    Run ranking first, then produce explainable hiring decisions per candidate.
+    """
+    ranking_result = await _rank_resumes_internal(
+        job_description=job_description,
+        resumes=resumes,
+        include_internal_fields=True,
+    )
+
+    decisions = []
+    for candidate in ranking_result.get("ranked_resumes", []):
+        if candidate.get("error"):
+            continue
+
+        details = candidate.get("match_details", {})
+        internal = candidate.get("_internal", {})
+        candidate_payload = {
+            "filename": candidate.get("filename"),
+            "candidate_id": candidate.get("candidate_id"),
+            "semantic_score": details.get("semantic_score", 0),
+            "keyword_score": details.get("keyword_score", 0),
+            "matched_skills": details.get("matched_skills", []),
+            "missing_skills": details.get("missing_skills", []),
+            "years_of_experience": candidate.get("years_of_experience", 0),
+            "education": internal.get("education_text", ""),
+            "section_breakdown": details.get("section_breakdown", {}),
+        }
+        result = decision_engine.evaluate_candidate(
+            candidate_data=candidate_payload,
+            job_description=job_description,
+            resume_text=internal.get("resume_text", ""),
+        )
+        decisions.append(result.to_dict())
+
+    decisions.sort(key=lambda d: d.get("composite_score", 0), reverse=True)
+    return {
+        "success": True,
+        "total_candidates": len(decisions),
+        "decisions": decisions,
+    }
 
 
 @app.post("/ingest-resume")
