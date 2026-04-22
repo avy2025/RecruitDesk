@@ -161,7 +161,7 @@ body::before {
 }
 
 .chat-bubble-user {
-  @apply bg-primary-gold bg-opacity-20 border border-primary-gold border-opacity-20 rounded-2xl rounded-tr-none p-4 text-sm text-white shadow-lg;
+  @apply bg-primary-topaz bg-opacity-20 border border-primary-topaz border-opacity-20 rounded-2xl rounded-tr-none p-4 text-sm text-white shadow-lg;
 }
 
 .chat-container-overlay {
@@ -169,5 +169,5 @@ body::before {
 }
 
 .suggestion-chip {
-  @apply px-3 py-1.5 rounded-full bg-white bg-opacity-5 border border-white border-opacity-10 text-xs text-gray-400 hover:bg-primary-gold hover:bg-opacity-10 hover:text-primary-gold hover:border-primary-gold hover:border-opacity-30 transition-all cursor-pointer whitespace-nowrap;
+  @apply px-3 py-1.5 rounded-full bg-white bg-opacity-5 border border-white border-opacity-10 text-xs text-gray-400 hover:bg-primary-topaz hover:bg-opacity-10 hover:text-primary-topaz hover:border-primary-topaz hover:border-opacity-30 transition-all cursor-pointer whitespace-nowrap;
 }

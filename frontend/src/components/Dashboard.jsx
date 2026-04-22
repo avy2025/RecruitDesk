@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import ResultCard from './ResultCard';
 import RAGChat from './RAGChat';
+import DecisionCard from './DecisionCard';
 
 /**
  * Dashboard Component
@@ -12,6 +13,7 @@ const Dashboard = () => {
     const [jobDescription, setJobDescription] = useState('');
     const [resumes, setResumes] = useState([]);
     const [results, setResults] = useState([]);
+    const [decisionResults, setDecisionResults] = useState([]);
     const [history, setHistory] = useState([]);
     const [projectName, setProjectName] = useState('New Project');
     const [loading, setLoading] = useState(false);
@@ -22,6 +24,10 @@ const Dashboard = () => {
     const [filterSkill, setFilterSkill] = useState('');
     const [sortBy, setSortBy] = useState('match'); // 'match', 'yoe'
     const [statusStage, setStatusStage] = useState(''); // 'Uploading...', 'Parsing...', 'Analyzing...'
+    const [decisionLoading, setDecisionLoading] = useState(false);
+    const [decisionError, setDecisionError] = useState('');
+    const [activeResultsTab, setActiveResultsTab] = useState('ranked'); // 'ranked' | 'decision'
+    const [autoOpenDecision, setAutoOpenDecision] = useState(true);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatMode, setChatMode] = useState('global'); // 'global', 'specific'
     const [chatCandidate, setChatCandidate] = useState({ id: null, name: null });
@@ -33,6 +39,10 @@ const Dashboard = () => {
     useEffect(() => {
         const savedHistory = JSON.parse(localStorage.getItem('recruitdesk_history') || '[]');
         setHistory(savedHistory);
+        const savedAutoDecision = localStorage.getItem('recruitdesk_auto_decision');
+        if (savedAutoDecision !== null) {
+            setAutoOpenDecision(savedAutoDecision === 'true');
+        }
 
         // Dark mode check
         if (localStorage.getItem('recruitdesk_theme') === 'light') {
@@ -120,6 +130,9 @@ const Dashboard = () => {
         setLoading(true);
         setError('');
         setResults([]);
+        setDecisionResults([]);
+        setDecisionError('');
+        setActiveResultsTab('ranked');
         setPercentProgress(10); // Start progress
 
         try {
@@ -151,11 +164,14 @@ const Dashboard = () => {
             if (response.data.success) {
                 setStatusStage('Finalizing results...');
                 setPercentProgress(90);
-                setTimeout(() => {
-                    setResults(response.data.ranked_resumes);
-                    saveToHistory(response.data.ranked_resumes);
-                    setPercentProgress(100);
-                }, 300);
+                await new Promise((resolve) => setTimeout(resolve, 300));
+                setResults(response.data.ranked_resumes);
+                saveToHistory(response.data.ranked_resumes);
+                setPercentProgress(100);
+
+                if (autoOpenDecision) {
+                    await fetchDecisionResults(true);
+                }
             }
         } catch (err) {
             console.error('Error analyzing resumes:', err);
@@ -203,8 +219,74 @@ const Dashboard = () => {
     const clearAllResumes = () => {
         setResumes([]);
         setResults([]);
+        setDecisionResults([]);
+        setDecisionError('');
+        setActiveResultsTab('ranked');
         setError('');
         setProjectName('New Project');
+    };
+
+    const mapDecisionPayload = (item) => ({
+        filename: item.filename,
+        composite_score: item.composite_score,
+        decision: item.decision,
+        confidence: item.confidence,
+        confidence_label: item.confidence_label,
+        score_breakdown: {
+            semantic_score: item.semantic_score ?? 0,
+            keyword_score: item.keyword_skill_score ?? 0,
+            experience_score: item.experience_fit_score ?? 0,
+            education_score: item.education_match_score ?? 0,
+            completeness_score: item.resume_completeness_score ?? 0,
+        },
+        matched_skills: item.matched_skills ?? [],
+        skill_gaps: (item.skill_gap_analysis ?? []).map((gap) => ({
+            skill: gap.skill,
+            priority: gap.severity,
+            suggestion: gap.suggestion,
+        })),
+        reasons: item.reasons ?? [],
+        bias_flags: item.bias_warnings ?? [],
+        uncertainty_notes: item.uncertainty_notes ?? [],
+    });
+
+    const fetchDecisionResults = async (switchTabOnSuccess = false) => {
+        if (!jobDescription.trim() || resumes.length === 0) {
+            setDecisionError('Please provide a job description and upload resumes before using Decision Engine.');
+            return;
+        }
+
+        setDecisionLoading(true);
+        setDecisionError('');
+        try {
+            const formData = new FormData();
+            formData.append('job_description', jobDescription);
+            resumes.forEach((resume) => formData.append('resumes', resume));
+
+            const response = await axios.post(`${API_URL}/hiring-decision`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+
+            const sorted = (response.data?.decisions ?? [])
+                .map(mapDecisionPayload)
+                .sort((a, b) => b.composite_score - a.composite_score);
+            setDecisionResults(sorted);
+            if (switchTabOnSuccess) {
+                setActiveResultsTab('decision');
+            }
+        } catch (err) {
+            console.error('Error generating hiring decisions:', err);
+            setDecisionError(err.response?.data?.detail || 'Failed to generate hiring decisions. Please try again.');
+        } finally {
+            setDecisionLoading(false);
+        }
+    };
+
+    const handleResultsTabChange = (tab) => {
+        setActiveResultsTab(tab);
+        if (tab === 'decision' && decisionResults.length === 0 && !decisionLoading) {
+            fetchDecisionResults();
+        }
     };
 
     const handleGenerateQuestions = async (data) => {
@@ -534,6 +616,19 @@ const Dashboard = () => {
                                     'Analyze Candidates'
                                 )}
                             </button>
+                            <label className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-400 backdrop-blur-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={autoOpenDecision}
+                                    onChange={(e) => {
+                                        const nextValue = e.target.checked;
+                                        setAutoOpenDecision(nextValue);
+                                        localStorage.setItem('recruitdesk_auto_decision', String(nextValue));
+                                    }}
+                                    className="h-3.5 w-3.5 accent-primary-gold"
+                                />
+                                Auto-open Decision Engine after analysis
+                            </label>
                         </motion.div>
 
                         {/* Results Section */}
@@ -543,6 +638,23 @@ const Dashboard = () => {
                                 animate={{ opacity: 1 }}
                                 transition={{ duration: 0.6 }}
                             >
+                                <div className="mb-5 inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+                                    <button
+                                        onClick={() => handleResultsTabChange('ranked')}
+                                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${activeResultsTab === 'ranked' ? 'bg-primary-topaz/20 text-primary-topaz border border-primary-topaz/30' : 'text-gray-300 hover:text-white'}`}
+                                    >
+                                        Ranked Results
+                                    </button>
+                                    <button
+                                        onClick={() => handleResultsTabChange('decision')}
+                                        className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${activeResultsTab === 'decision' ? 'bg-primary-gold/20 text-primary-gold border border-primary-gold/30' : 'text-gray-300 hover:text-white'}`}
+                                    >
+                                        Decision Engine
+                                    </button>
+                                </div>
+
+                                {activeResultsTab === 'ranked' && (
+                                    <>
                                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                                     <div className="flex items-center gap-4">
                                         <h2 className="text-3xl font-bold text-white">
@@ -626,6 +738,53 @@ const Dashboard = () => {
                                         >
                                             Reset Filters
                                         </button>
+                                    </div>
+                                )}
+                                    </>
+                                )}
+
+                                {activeResultsTab === 'decision' && (
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <h2 className="text-3xl font-bold text-white">Hiring Decisions</h2>
+                                            <button
+                                                onClick={fetchDecisionResults}
+                                                disabled={decisionLoading}
+                                                className="bg-primary-gold/10 text-primary-gold border border-primary-gold/25 px-3 py-1 rounded-md text-xs font-semibold hover:bg-primary-gold/20 transition-all disabled:opacity-60"
+                                            >
+                                                Refresh Decisions
+                                            </button>
+                                        </div>
+
+                                        {decisionLoading && (
+                                            <div className="glass-card p-8 flex items-center justify-center gap-3">
+                                                <svg className="animate-spin h-6 w-6 text-primary-gold" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.372 0 0 5.372 0 12h4z" />
+                                                </svg>
+                                                <span className="text-sm text-gray-300">Running hiring decision engine...</span>
+                                            </div>
+                                        )}
+
+                                        {decisionError && !decisionLoading && (
+                                            <div className="glass-card p-4 border-l-4 border-red-500 bg-red-500/10">
+                                                <p className="text-red-300 text-sm">{decisionError}</p>
+                                            </div>
+                                        )}
+
+                                        {!decisionLoading && !decisionError && decisionResults.length > 0 && (
+                                            <div className="space-y-4">
+                                                {decisionResults.map((item, idx) => (
+                                                    <DecisionCard key={`${item.filename}-${idx}`} decisionResult={item} />
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {!decisionLoading && !decisionError && decisionResults.length === 0 && (
+                                            <div className="glass-card p-8 text-center">
+                                                <p className="text-gray-400 text-sm">No hiring decisions available yet.</p>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </motion.section>
