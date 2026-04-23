@@ -31,6 +31,7 @@ const Dashboard = () => {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatMode, setChatMode] = useState('global'); // 'global', 'specific'
     const [chatCandidate, setChatCandidate] = useState({ id: null, name: null });
+    const [decisionEngineActive, setDecisionEngineActive] = useState(false);
     const fileInputRef = useRef(null);
 
     const API_URL = 'http://localhost:8000';
@@ -48,6 +49,21 @@ const Dashboard = () => {
         if (localStorage.getItem('recruitdesk_theme') === 'light') {
             document.documentElement.classList.add('light-mode');
         }
+    }, []);
+
+    useEffect(() => {
+        const checkHealth = async () => {
+            try {
+                const response = await axios.get(`${API_URL}/health`);
+                if (response?.data?.decision_engine === true) {
+                    setDecisionEngineActive(true);
+                }
+            } catch (err) {
+                // Fail silently as requested.
+            }
+        };
+
+        checkHealth();
     }, []);
 
     const saveToHistory = (newResults) => {
@@ -332,6 +348,11 @@ const Dashboard = () => {
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
+                        {decisionEngineActive && (
+                            <span className="inline-flex items-center rounded-full border border-green-400/30 bg-green-500/15 px-3 py-1 text-xs font-semibold text-green-300">
+                                Phase 6 · Decision Engine Active
+                            </span>
+                        )}
                         <button
                             onClick={toggleTheme}
                             className="p-2 rounded-full hover:bg-white hover:bg-opacity-10 transition-all text-white"
