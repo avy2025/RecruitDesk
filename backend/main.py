@@ -568,9 +568,19 @@ async def root():
 async def health_check():
     """Detailed health check"""
     return {
-        "status": "healthy",
-        "model": "all-mpnet-base-v2" if model else "loading/failed",
-        "spacy": "en_core_web_sm" if nlp else "loading/failed"
+        "status": "ok",
+        "phase": 6,
+        "phase_label": "Hiring Decision Engine",
+        "features": [
+            "Resume Ingestion",
+            "Semantic Search",
+            "Job Matching",
+            "LLM Integration",
+            "Conversational RAG",
+            "Hiring Decision Engine",
+        ],
+        "model": "all-mpnet-base-v2",
+        "decision_engine": True,
     }
 
 @app.post("/match-candidates")
