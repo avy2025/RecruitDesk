@@ -1,0 +1,153 @@
+﻿backend/main.py:3:80: E501 line too long (87 > 79 characters)
+backend/main.py:9:1: F401 'sklearn.metrics.pairwise.cosine_similarity' imported but unused
+backend/main.py:10:1: F401 'pdfplumber' imported but unused
+backend/main.py:16:1: F401 'numpy as np' imported but unused
+backend/main.py:18:1: F811 redefinition of unused 'List' from line 13
+backend/main.py:18:1: F811 redefinition of unused 'Dict' from line 13
+backend/main.py:18:1: F811 redefinition of unused 'Any' from line 13
+backend/main.py:19:1: F401 'datetime.datetime' imported but unused
+backend/main.py:24:80: E501 line too long (119 > 79 characters)
+backend/main.py:27:1: F401 'asyncio' imported but unused
+backend/main.py:44:80: E501 line too long (94 > 79 characters)
+backend/main.py:52:1: F811 redefinition of unused 'nlp' from line 24
+backend/main.py:66:1: W293 blank line contains whitespace
+backend/main.py:68:80: E501 line too long (110 > 79 characters)
+backend/main.py:84:80: E501 line too long (80 > 79 characters)
+backend/main.py:85:80: E501 line too long (88 > 79 characters)
+backend/main.py:89:80: E501 line too long (96 > 79 characters)
+backend/main.py:103:49: E261 at least two spaces before inline comment
+backend/main.py:104:80: E501 line too long (87 > 79 characters)
+backend/main.py:107:1: W293 blank line contains whitespace
+backend/main.py:109:1: W293 blank line contains whitespace
+backend/main.py:115:1: W293 blank line contains whitespace
+backend/main.py:121:65: E261 at least two spaces before inline comment
+backend/main.py:121:80: E501 line too long (83 > 79 characters)
+backend/main.py:123:1: E302 expected 2 blank lines, found 1
+backend/main.py:125:42: W291 trailing whitespace
+backend/main.py:130:19: E261 at least two spaces before inline comment
+backend/main.py:134:50: E261 at least two spaces before inline comment
+backend/main.py:139:80: E501 line too long (102 > 79 characters)
+backend/main.py:144:1: W293 blank line contains whitespace
+backend/main.py:153:1: W293 blank line contains whitespace
+backend/main.py:157:80: E501 line too long (85 > 79 characters)
+backend/main.py:161:1: W293 blank line contains whitespace
+backend/main.py:163:80: E501 line too long (89 > 79 characters)
+backend/main.py:165:80: E501 line too long (90 > 79 characters)
+backend/main.py:168:1: W293 blank line contains whitespace
+backend/main.py:175:80: E501 line too long (100 > 79 characters)
+backend/main.py:177:80: E501 line too long (101 > 79 characters)
+backend/main.py:180:80: E501 line too long (86 > 79 characters)
+backend/main.py:182:1: W293 blank line contains whitespace
+backend/main.py:189:80: E501 line too long (126 > 79 characters)
+backend/main.py:190:1: W293 blank line contains whitespace
+backend/main.py:196:1: W293 blank line contains whitespace
+backend/main.py:197:80: E501 line too long (107 > 79 characters)
+backend/main.py:199:80: E501 line too long (102 > 79 characters)
+backend/main.py:203:1: W293 blank line contains whitespace
+backend/main.py:208:1: W293 blank line contains whitespace
+backend/main.py:210:80: E501 line too long (95 > 79 characters)
+backend/main.py:211:80: E501 line too long (87 > 79 characters)
+backend/main.py:212:1: W293 blank line contains whitespace
+backend/main.py:228:80: E501 line too long (120 > 79 characters)
+backend/main.py:228:84: E261 at least two spaces before inline comment
+backend/main.py:231:1: W293 blank line contains whitespace
+backend/main.py:238:1: W293 blank line contains whitespace
+backend/main.py:272:69: E261 at least two spaces before inline comment
+backend/main.py:272:80: E501 line too long (87 > 79 characters)
+backend/main.py:276:80: E501 line too long (92 > 79 characters)
+backend/main.py:277:1: W293 blank line contains whitespace
+backend/main.py:279:80: E501 line too long (86 > 79 characters)
+backend/main.py:280:1: W293 blank line contains whitespace
+backend/main.py:282:80: E501 line too long (81 > 79 characters)
+backend/main.py:283:1: W293 blank line contains whitespace
+backend/main.py:286:1: W293 blank line contains whitespace
+backend/main.py:289:1: W293 blank line contains whitespace
+backend/main.py:294:80: E501 line too long (80 > 79 characters)
+backend/main.py:296:1: W293 blank line contains whitespace
+backend/main.py:298:80: E501 line too long (87 > 79 characters)
+backend/main.py:303:1: W293 blank line contains whitespace
+backend/main.py:306:1: W293 blank line contains whitespace
+backend/main.py:315:1: W293 blank line contains whitespace
+backend/main.py:318:1: W293 blank line contains whitespace
+backend/main.py:321:1: W293 blank line contains whitespace
+backend/main.py:325:80: E501 line too long (85 > 79 characters)
+backend/main.py:329:1: W293 blank line contains whitespace
+backend/main.py:331:80: E501 line too long (93 > 79 characters)
+backend/main.py:332:1: W293 blank line contains whitespace
+backend/main.py:336:80: E501 line too long (83 > 79 characters)
+backend/main.py:338:80: E501 line too long (106 > 79 characters)
+backend/main.py:340:18: E111 indentation is not a multiple of 4
+backend/main.py:340:18: E117 over-indented
+backend/main.py:340:80: E501 line too long (90 > 79 characters)
+backend/main.py:341:1: W293 blank line contains whitespace
+backend/main.py:345:80: E501 line too long (142 > 79 characters)
+backend/main.py:346:1: W293 blank line contains whitespace
+backend/main.py:352:80: E501 line too long (97 > 79 characters)
+backend/main.py:372:1: W293 blank line contains whitespace
+backend/main.py:373:80: E501 line too long (107 > 79 characters)
+backend/main.py:374:1: W293 blank line contains whitespace
+backend/main.py:377:1: W293 blank line contains whitespace
+backend/main.py:383:1: W293 blank line contains whitespace
+backend/main.py:386:80: E501 line too long (87 > 79 characters)
+backend/main.py:387:1: W293 blank line contains whitespace
+backend/main.py:395:80: E501 line too long (93 > 79 characters)
+backend/main.py:407:80: E501 line too long (92 > 79 characters)
+backend/main.py:418:80: E501 line too long (80 > 79 characters)
+backend/main.py:422:80: E501 line too long (82 > 79 characters)
+backend/main.py:436:1: W293 blank line contains whitespace
+backend/main.py:438:1: W293 blank line contains whitespace
+backend/main.py:445:80: E501 line too long (178 > 79 characters)
+backend/main.py:446:80: E501 line too long (111 > 79 characters)
+backend/main.py:448:1: W293 blank line contains whitespace
+backend/main.py:455:80: E501 line too long (151 > 79 characters)
+backend/main.py:456:80: E501 line too long (80 > 79 characters)
+backend/main.py:458:1: W293 blank line contains whitespace
+backend/main.py:463:80: E501 line too long (147 > 79 characters)
+backend/main.py:464:80: E501 line too long (86 > 79 characters)
+backend/main.py:469:80: E501 line too long (161 > 79 characters)
+backend/main.py:470:80: E501 line too long (85 > 79 characters)
+backend/main.py:472:1: W293 blank line contains whitespace
+backend/main.py:477:80: E501 line too long (111 > 79 characters)
+backend/main.py:478:80: E501 line too long (88 > 79 characters)
+backend/main.py:480:1: W293 blank line contains whitespace
+backend/main.py:484:80: E501 line too long (112 > 79 characters)
+backend/main.py:487:1: W293 blank line contains whitespace
+backend/main.py:514:1: E302 expected 2 blank lines, found 1
+backend/main.py:518:49: E261 at least two spaces before inline comment
+backend/main.py:526:1: W293 blank line contains whitespace
+backend/main.py:530:80: E501 line too long (86 > 79 characters)
+backend/main.py:531:1: W293 blank line contains whitespace
+backend/main.py:539:1: W293 blank line contains whitespace
+backend/main.py:543:80: E501 line too long (81 > 79 characters)
+backend/main.py:545:1: E302 expected 2 blank lines, found 1
+backend/main.py:553:1: E302 expected 2 blank lines, found 1
+backend/main.py:561:5: F841 local variable 'filters' is assigned to but never used
+backend/main.py:563:1: W293 blank line contains whitespace
+backend/main.py:566:1: W293 blank line contains whitespace
+backend/main.py:569:1: W293 blank line contains whitespace
+backend/main.py:576:1: W293 blank line contains whitespace
+backend/main.py:579:1: W293 blank line contains whitespace
+backend/main.py:584:80: E501 line too long (100 > 79 characters)
+backend/main.py:585:1: W293 blank line contains whitespace
+backend/main.py:587:80: E501 line too long (80 > 79 characters)
+backend/main.py:594:1: W293 blank line contains whitespace
+backend/main.py:598:80: E501 line too long (86 > 79 characters)
+backend/main.py:599:1: W293 blank line contains whitespace
+backend/main.py:600:64: E261 at least two spaces before inline comment
+backend/main.py:600:80: E501 line too long (100 > 79 characters)
+backend/main.py:601:80: E501 line too long (97 > 79 characters)
+backend/main.py:602:1: W293 blank line contains whitespace
+backend/main.py:613:1: W293 blank line contains whitespace
+backend/main.py:617:42: W291 trailing whitespace
+backend/main.py:622:1: W293 blank line contains whitespace
+backend/main.py:625:25: E261 at least two spaces before inline comment
+backend/main.py:626:47: W291 trailing whitespace
+backend/main.py:632:1: W293 blank line contains whitespace
+backend/main.py:636:1: W293 blank line contains whitespace
+backend/main.py:640:80: E501 line too long (87 > 79 characters)
+backend/main.py:641:1: W293 blank line contains whitespace
+backend/main.py:643:24: W291 trailing whitespace
+backend/main.py:644:36: W291 trailing whitespace
+backend/main.py:647:1: W293 blank line contains whitespace
+backend/main.py:651:1: W293 blank line contains whitespace
+backend/main.py:653:1: W293 blank line contains whitespace
