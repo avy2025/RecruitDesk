@@ -1,211 +1,150 @@
-# RecruitDesk AI
+# 🚀 RecruitDesk AI
 
-**AI-Powered Resume Ranking Web Application**
-
-RecruitDesk AI is a professional intelligent application that uses advanced artificial intelligence to rank resumes based on their match with job descriptions. Now powered by **Hybrid Scoring** (Semantic + Keyword) and **Explainable AI** to provide deep insights into candidate matches.
+<div align="center">
 
 ![RecruitDesk AI](./assets/logo.png)
 
+**Transform your hiring workflow with state-of-the-art AI Intelligence.**
+
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com/)
+[![React 19](https://img.shields.io/badge/React-19.0-61DAFB.svg)](https://reactjs.org/)
+[![Vite](https://img.shields.io/badge/Vite-7.0-646CFF.svg)](https://vitejs.dev/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+[Features](#-features) • [Tech Stack](#-tech-stack) • [Installation](#-quick-start) • [API Documentation](#-api-endpoints) • [Architecture](#-architecture)
+
+</div>
+
+---
+
+## 🌟 Overview
+
+RecruitDesk AI is a comprehensive, enterprise-grade recruitment intelligence platform. It leverages **Retrieval-Augmented Generation (RAG)**, **Semantic Search**, and **Hybrid Scoring** to bridge the gap between complex job descriptions and thousands of potential candidates. 
+
+Unlike traditional keyword-based filters, RecruitDesk AI understands the *intent* and *context* of a resume, providing recruiters with deep, explainable insights and conversational intelligence.
+
+---
+
 ## 🎯 Features
 
-- **Cinematic Landing Animation**: Professional intro with logo glow effects and smooth transitions
-- **Advanced AI Ranking**: Powered by `all-mpnet-base-v2` for superior semantic understanding
-- **Hybrid Scoring Algorithm**: Combines deep semantic search (60%) with keyword & skill matching (40%)
-- **Tailored Interview Questions**: Generate candidate-specific questions to probe technical gaps and highlight strengths
-- **Entity Extraction & Robust Text Parsing**: Automatically identifies Skills, Experience, Education sections, and accurately extracts real Years of Experience (YoE) using intelligent filtering
-- **Explainable AI**: Provides "Match Breakdown" and "Why this match?" insights for every candidate
-- **Project History Persistence**: Automatically saves analysis results to LocalStorage for quick access later
-- **CSV Results Export**: Downloadable reports for team sharing and record-keeping
-- **Theme Toggle**: Support for both Dark and Light modes
-- **Drag & Drop Upload**: Intuitive file upload with support for up to 10 PDF resumes
-- **Beautiful UI**: Glassmorphism design with Framer Motion animations
+### 🧠 Intelligence Suite
+- **Advanced JD Analyzer**: Extracts "Must-Haves", "Nice-to-Haves", seniority levels, and experience requirements using spaCy & Regex logic.
+- **Hybrid Scoring v2**: A weighted algorithm (Semantic 60% + Skills 40%) that prioritizes candidates based on classified JD priorities.
+- **RAG-Powered Chat**: Converse with your resume database. Ask questions like *"Who has the strongest AWS experience?"* or *"Summarize Candidate X's leadership roles."*
+- **Explainable AI (XAI)**: Not just a score—get detailed reasoning, strength breakdowns, and technical gap analysis for every candidate.
+
+### 💼 Recruiter Workflow
+- **Hiring Decision Engine**: Automated evaluation of candidates with composite scores and hiring recommendations.
+- **Interview Question Generator**: Tailored questions generated automatically based on a candidate's specific strengths and identified gaps.
+- **Multi-Format Support**: Robust parsing for both **PDF** and **DOCX** files using high-performance libraries.
+- **Batch Processing**: Upload and analyze up to 10 resumes simultaneously with real-time progress updates.
+
+### 🎨 Premium User Experience
+- **Glassmorphism UI**: A sleek, modern dashboard built with Tailwind CSS and Framer Motion.
+- **Cinematic Animations**: Professional entrance effects and micro-interactions for a premium feel.
+- **Health Monitoring**: Real-time status tracking of AI models and backend services.
+
+---
 
 ## 🏗 Tech Stack
 
-### Backend
-- **Python 3.11+**
-- **FastAPI** - Modern, fast web framework
-- **spaCy** - NLP for entity extraction (`en_core_web_sm`)
-- **sentence-transformers** - State-of-the-art embeddings (`all-mpnet-base-v2`)
-- **scikit-learn & NumPy** - Similarity calculations
-- **pdfplumber** - Robust PDF text extraction
+### Backend (The Brain)
+- **FastAPI**: Asynchronous high-performance API framework.
+- **Sentence-Transformers**: `all-mpnet-base-v2` for state-of-the-art semantic embeddings.
+- **FAISS**: Facebook AI Similarity Search for lightning-fast vector retrieval.
+- **spaCy**: Industrial-strength NLP for entity extraction and technical skill classification (`en_core_web_sm`).
+- **Google Gemini / OpenAI**: Integrated for advanced conversational reasoning and RAG intelligence.
 
-### Frontend
-- **React 18** - UI framework
-- **Vite** - Build tool and dev server
-- **Tailwind CSS** - Utility-first styling
-- **Framer Motion** - Smooth animations
-- **Recharts** - Radar charts for fit visualization
-- **Axios** - HTTP client
-- **LocalStorage API** - For persistence
+### Frontend (The Interface)
+- **React 19**: Utilizing the latest concurrent rendering features.
+- **Vite**: Ultra-fast build tool and development server.
+- **Tailwind CSS**: Modern utility-first styling.
+- **Framer Motion**: Production-ready motion library for React.
+- **Recharts**: Interactive radar charts for candidate fit visualization.
+
+---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.11 or higher
-- Node.js 16 or higher
+- **Python 3.11+**
+- **Node.js 18+**
+- (Optional) **Google Gemini API Key** for conversational features.
 
-### Quick Setup Helpers
-For a faster startup on Windows, you can simply run the `start_backend.bat` and `start_frontend.bat` scripts located in the parent directory!
+### 1. Clone & Setup
+```bash
+git clone https://github.com/your-username/RecruitDesk-AI.git
+cd RecruitDesk-AI
+```
 
-### Backend Setup
+### 2. Backend Installation
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+# Models download automatically on first run
+uvicorn main:app --reload
+```
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+### 3. Frontend Installation
+```bash
+cd ../frontend
+npm install
+npm run dev
+```
 
-2. Create a virtual environment (recommended):
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate  # Windows
-   # source venv/bin/activate  # macOS/Linux
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **(Optional)** Manually download the spaCy model (automatically handled on first run):
-   ```bash
-   python -m spacy download en_core_web_sm
-   ```
-
-5. Start the backend server:
-   ```bash
-   uvicorn main:app --reload
-   ```
-
-The API will be available at `http://localhost:8000`
-
-### Frontend Setup
-
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-The application will be available at `http://localhost:5173`
-
-## 📖 Usage
-
-1. **Open the application** in your browser at `http://localhost:5173`
-2. **Watch the intro animation** featuring the RecruitDesk AI logo
-3. **Paste a job description** in the text area
-4. **Upload PDF resumes** by dragging and dropping or clicking to browse
-5. **Click "Analyze Candidates"** to process the resumes
-6. **View ranked results** sorted by match percentage
-7. **Click on a result card** to expand "Match Breakdown", "Matched Skills", and "Reasons"
+---
 
 ## 🔌 API Endpoints
 
 ### `POST /rank-resumes`
-Rank resumes based on job description similarity using hybrid scoring.
+Rank uploaded resumes against a job description.
+- **Form Data**: `job_description` (string), `resumes` (files)
+- **Feature**: Uses the new weighted scoring based on JD analysis.
 
-**Request:**
-- `job_description` (form field): Job description text
-- `resumes` (files): Multiple PDF files (max 10)
+### `GET /analyze-jd`
+Stand-alone endpoint to breakdown a Job Description.
+- **Params**: `jd_text`
+- **Returns**: Classified skills, seniority, experience, and red flags.
 
-**Response:**
-```json
-{
-  "success": true,
-  "total_resumes": 2,
-  "ranked_resumes": [
-    {
-      "filename": "candidate_a.pdf",
-      "match_percentage": 92.5,
-      "match_details": {
-        "semantic_score": 95.2,
-        "keyword_score": 88.0,
-        "matched_skills": ["python", "react", "aws", "docker"],
-        "missing_skills": ["kubernetes"],
-        "match_reasons": [
-          "High semantic similarity to job description",
-          "Matched key skills: python, react, aws, docker",
-          "Strong overlap in terminology and domain language"
-        ]
-      }
-    },
-    {
-      "filename": "candidate_b.pdf",
-      "match_percentage": 65.4,
-      "match_details": {
-       ...
-      }
-    }
-  ]
-}
-```
+### `POST /rag-query`
+The core of conversational intelligence.
+- **Body**: `{"query": "...", "candidate_id": "optional"}`
+- **Feature**: Context-aware follow-up support with history management.
 
-### `GET /health`
-Health check endpoint to verify API and model status.
-
-## ⚡ Performance
-
-- **Powerful Model**: Uses `all-mpnet-base-v2` (~420MB) for maximum accuracy
-- **Fast Processing**: Model loaded once at startup
-- **Efficient**: Automatic cleanup of temporary files
-
-## 📁 Project Structure
-
-```
-recruitdesk-ai/
-├── backend/
-│   ├── main.py              # FastAPI application (AI Core)
-│   ├── requirements.txt     # Python dependencies
-│   └── .gitignore
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── LandingAnimation.jsx
-│   │   │   ├── Dashboard.jsx
-│   │   │   └── ResultCard.jsx  # Updated with Match Details
-│   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── index.css
-│   ├── public/
-│   │   └── logo.png
-│   ├── index.html
-│   ├── package.json
-│   ├── tailwind.config.js
-│   └── vite.config.js
-├── assets/
-│   └── logo.png
-└── README.md
-```
-
-## 📝 Notes
-
-- **First Run**: The application will download the AI models (~450MB total) on the first start. This may take 1-2 minutes depending on your internet connection.
-- **Privacy**: All processing happens locally. No data is sent to the cloud.
-- **MVP**: Uses local processing without a database.
-
-## 🎬 UX Flow
-
-1. User opens website → Cinematic logo animation plays
-2. Animation transitions to dashboard
-3. User pastes job description
-4. User uploads PDF resumes
-5. User clicks "Analyze Candidates"
-6. AI performs **Hybrid Scoring**:
-   - Encodes text into vectors for semantic match
-   - Extracts entities and keywords for skill match
-7. Results display with **Explainable AI** insights
-
-## 📄 License
-
-This project is for demonstration purposes.
+### `POST /hiring-decision`
+Produces a final evaluation and summary for candidates.
 
 ---
+
+## 📁 Architecture
+
+```
+RecruitDesk/
+├── backend/
+│   ├── rag/                 # RAG Pipeline (Embedder, VectorStore, LLM)
+│   ├── jd_analyzer.py       # JD Classification Engine
+│   ├── decision_engine.py   # Hiring Evaluation Logic
+│   └── main.py              # API Layer
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # Modular UI Components
+│   │   └── App.jsx          # Orchestration Layer
+│   └── public/              # Static Assets
+└── assets/                  # Documentation Branding
+```
+
+---
+
+## 📝 Notes & Privacy
+- **Local Processing**: Vector indexed (FAISS) and Semantic models run locally on your hardware.
+- **Data Privacy**: No resume data is permanently stored on external servers unless using the optional LLM chat features.
+- **First Run**: Initial startup downloads ~450MB of specialized AI models.
+
+---
+
+<div align="center">
+Built with ❤️ for Modern Recruiters
+</div>
