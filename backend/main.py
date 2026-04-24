@@ -12,6 +12,7 @@ import logging
 import spacy
 import re
 from typing import List, Dict, Any, Optional
+from dataclasses import asdict
 from rag.embedder import RAGEmbedder
 from rag.vector_store import RAGVectorStore
 from rag.loader import ResumeLoader, JobLoader
@@ -20,6 +21,7 @@ from rag.parser import parse_file, extract_metadata, parse_pdf, extract_years_of
 from rag.llm_service import LLMService
 from rag.memory import ConversationMemory
 from decision_engine import HiringDecisionEngine
+from jd_analyzer import JDAnalyzer, JDAnalysis
 from fastapi import BackgroundTasks
 
 # Configure logging
@@ -52,6 +54,7 @@ job_loader = None
 candidate_matcher = None
 llm_service = None
 memory_store = None
+jd_analyzer = None
 decision_engine = HiringDecisionEngine()
 
 
@@ -103,11 +106,12 @@ async def load_models():
     
     resume_loader = ResumeLoader(vector_store, rag_embedder)
     
-    global job_loader, candidate_matcher, llm_service, memory_store
+    global job_loader, candidate_matcher, llm_service, memory_store, jd_analyzer
     job_loader = JobLoader(vector_store, rag_embedder)
     candidate_matcher = CandidateMatcher(vector_store, rag_embedder)
     llm_service = LLMService()
     memory_store = ConversationMemory(max_sessions=100, ttl_seconds=3600)
+    jd_analyzer = JDAnalyzer(nlp)
     
     logger.info("RAG system initialized successfully")
 
@@ -168,7 +172,7 @@ def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]
     }
 
 
-def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict) -> Dict[str, Any]:
+def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict, jd_analysis: Optional[JDAnalysis] = None) -> Dict[str, Any]:
     """
     Calculate a hybrid score based on section-aware semantic similarity, keyword overlap, and skills.
     """
@@ -202,9 +206,32 @@ def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict
         missing_skills = job_skills - resume_skills
         common_keywords = job_keywords.intersection(resume_keywords)
         
-        # Keyword score calculation
+        # Weighted Scoring using JDAnalysis
+        if jd_analysis:
+            must_haves = set(s.lower() for s in jd_analysis.must_have_skills)
+            nice_to_haves = set(s.lower() for s in jd_analysis.nice_to_have_skills)
+            
+            total_possible_weight = 0
+            acquired_weight = 0
+            
+            for skill in job_skills:
+                if skill in must_haves:
+                    weight = 2.0
+                elif skill in nice_to_haves:
+                    weight = 1.0
+                else:
+                    weight = 0.5
+                
+                total_possible_weight += weight
+                if skill in resume_skills:
+                    acquired_weight += weight
+            
+            skill_score = (acquired_weight / total_possible_weight * 100) if total_possible_weight > 0 else 0
+        else:
+            skill_score = (len(common_skills) / len(job_skills) * 100) if job_skills else 0
+            
+        # Keyword score remains flat for general overlap
         keyword_score = (len(common_keywords) / len(job_keywords) * 100) if job_keywords else 0
-        skill_score = (len(common_skills) / len(job_skills) * 100) if job_skills else 0
             
         matched_skills_list = list(common_skills)
         missing_skills_list = list(missing_skills)
@@ -281,6 +308,9 @@ async def _rank_resumes_internal(
     try:
         logger.info(f"Ranking {len(resumes)} resumes against job description")
         
+        # 0. Analyze Job Description
+        jd_analysis = jd_analyzer.analyze(job_description) if jd_analyzer else None
+        
         # Process each resume
         for resume_file in resumes:
             # Validate file type
@@ -322,7 +352,7 @@ async def _rank_resumes_internal(
             }
             
             # Calculate match scores
-            match_data = calculate_hybrid_score(job_description, resume_text, resume_details)
+            match_data = calculate_hybrid_score(job_description, resume_text, resume_details, jd_analysis)
             
             # Generate summary reasons
             match_reasons = []
@@ -366,6 +396,7 @@ async def _rank_resumes_internal(
                     "resume_text": resume_text,
                     "education_text": sections.get("education", ""),
                 },
+                "jd_analysis": asdict(jd_analysis) if jd_analysis else None
             })
             
             logger.info(f"{resume_file.filename}: {match_data['final_score']}% match (ID: {candidate_id})")
@@ -376,6 +407,7 @@ async def _rank_resumes_internal(
         return {
             "success": True,
             "total_resumes": len(results),
+            "jd_analysis": asdict(jd_analysis) if jd_analysis else None,
             "ranked_resumes": results if include_internal_fields else [
                 {k: v for k, v in r.items() if k != "_internal"} for r in results
             ]
@@ -408,6 +440,20 @@ async def rank_resumes(
         resumes=resumes,
         include_internal_fields=False,
     )
+
+@app.get("/analyze-jd")
+async def analyze_jd(jd_text: str):
+    """
+    Extract and classify keywords from a job description
+    """
+    if not jd_analyzer:
+        raise HTTPException(status_code=500, detail="JD Analyzer not initialized")
+    
+    analysis = jd_analyzer.analyze(jd_text)
+    return {
+        "success": True,
+        "analysis": asdict(analysis)
+    }
 
 
 @app.post("/hiring-decision")
