@@ -34,6 +34,12 @@ Unlike traditional keyword-based filters, RecruitDesk AI understands the *intent
 - **RAG-Powered Chat**: Converse with your resume database. Ask questions like *"Who has the strongest AWS experience?"* or *"Summarize Candidate X's leadership roles."*
 - **Explainable AI (XAI)**: Not just a score—get detailed reasoning, strength breakdowns, and technical gap analysis for every candidate.
 
+### ⚡ Performance & Cost Control
+- **Intelligent Response Caching**: Hash-based in-memory cache (MD5) for LLM responses with FIFO eviction to minimize redundant API calls.
+- **Aggressive Memory Management**: Context-aware history trimming that summarizes older turns while preserving core intent and recent context.
+- **Model Guard System**: Whitelist-based safety check that prevents accidental usage of expensive model variants (e.g., Gemini Pro) in production.
+- **Rule-Based Query Rewriting**: Bypasses the LLM for simple follow-up filters, reducing latency by up to 90% for routine drill-downs.
+
 ### 💼 Recruiter Workflow
 - **Hiring Decision Engine**: Automated evaluation of candidates with composite scores and hiring recommendations.
 - **Interview Question Generator**: Tailored questions generated automatically based on a candidate's specific strengths and identified gaps.
@@ -116,6 +122,15 @@ The core of conversational intelligence.
 
 ### `POST /hiring-decision`
 Produces a final evaluation and summary for candidates.
+
+### `GET /cache-stats`
+Monitor LLM response cache health, hits, and misses.
+
+### `GET /memory-stats`
+Track conversational memory efficiency and token usage.
+
+### `GET /model-info`
+Verify active LLM model and cost-control guardrails.
 
 ---
 
