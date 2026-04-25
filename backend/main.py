@@ -120,6 +120,10 @@ async def load_models():
 extract_text_from_pdf = parse_pdf
 extract_years_of_experience_legacy = extract_years_of_experience # Already imported
 
+def _estimate_tokens(text: str) -> int:
+    """Rough estimate: words × 1.3."""
+    return int(len(text.split()) * 1.3)
+
 def extract_entities(text: str) -> Dict[str, List[str]]:
     """
     Legacy wrapper for entity extraction. 
@@ -361,13 +365,13 @@ async def _rank_resumes_internal(
             if len(match_data['matched_skills']) > 0:
                 match_reasons.append(f"Matched key skills: {', '.join(match_data['matched_skills'][:5])}")
             if match_data['keyword_score'] > 50:
-                 match_reasons.append("Strong overlap in terminology and domain language")
-            
+                match_reasons.append("Strong overlap in terminology and domain language")
+
             # Generate candidate summary
             skill_count = len(match_data['matched_skills'])
             yoe = match_data['years_of_experience']
             summary = f"{yoe}+ years of experience. Matched {skill_count} key skills including {', '.join(match_data['matched_skills'][:3])}."
-            
+
             # Store in RAG system for Chat Intelligence
             try:
                 ingest_result = resume_loader.ingest(temp_file_path)
@@ -440,6 +444,7 @@ async def rank_resumes(
         resumes=resumes,
         include_internal_fields=False,
     )
+
 
 @app.get("/analyze-jd")
 async def analyze_jd(jd_text: str):
@@ -629,6 +634,7 @@ async def health_check():
         "decision_engine": True,
     }
 
+
 @app.get("/cache-stats")
 async def get_cache_stats():
     """
@@ -637,6 +643,7 @@ async def get_cache_stats():
     if not llm_service:
         raise HTTPException(status_code=500, detail="LLM Service not initialized")
     return llm_service.cache_stats()
+
 
 @app.get("/memory-stats")
 async def get_memory_stats():
@@ -647,6 +654,7 @@ async def get_memory_stats():
         raise HTTPException(status_code=500, detail="LLM Service not initialized")
     return llm_service.memory_stats()
 
+
 @app.get("/model-info")
 async def get_model_info():
     """
@@ -655,6 +663,7 @@ async def get_model_info():
     if not llm_service:
         raise HTTPException(status_code=500, detail="LLM Service not initialized")
     return llm_service.model_info()
+
 
 @app.post("/match-candidates")
 async def match_candidates(
@@ -687,6 +696,7 @@ async def match_candidates(
         logger.error(f"Matching failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
 
+
 @app.post("/clear-chat")
 async def clear_chat(data: Dict[str, Any]):
     """Manual session clear"""
@@ -694,6 +704,7 @@ async def clear_chat(data: Dict[str, Any]):
     if session_id:
         memory_store.clear_session(session_id)
     return {"status": "success", "message": "Session cleared"}
+
 
 @app.post("/rag-query")
 async def rag_query(data: Dict[str, Any], background_tasks: BackgroundTasks):
@@ -714,7 +725,7 @@ async def rag_query(data: Dict[str, Any], background_tasks: BackgroundTasks):
     # 2. Session Initialization
     session = memory_store.get_session(session_id)
     session_id = session["session_id"]
-    history = session["history"]
+    recent_history = memory_store.get_recent_history(session_id)
     last_filters = session["last_filters"]
     last_candidates = session["last_candidates"]
     
@@ -758,7 +769,6 @@ async def rag_query(data: Dict[str, Any], background_tasks: BackgroundTasks):
 
         # 3D. LLM Query Rewrite (follow-up detection + filter injection)
         # Use token-aware recent history
-        recent_history = memory_store.get_recent_history(session_id)
         search_query = llm_service.rewrite_query(
             query, recent_history, active_filters, session_id=session_id
         )

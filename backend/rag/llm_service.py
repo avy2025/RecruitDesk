@@ -3,12 +3,11 @@ import json
 import logging
 import hashlib
 import re
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 import google.generativeai as genai
 from collections import OrderedDict
-from .vector_store import RAGVectorStore
 
 # Load environment variables
 load_dotenv()
@@ -133,9 +132,6 @@ def _estimate_tokens(text: str) -> int:
     return int(len(text.split()) * 1.3)
 
 
-
-
-
 def _aggressive_trim(
     history: List[Dict[str, str]],
     llm_provider: Optional[Any] = None,
@@ -177,12 +173,12 @@ def _aggressive_trim(
             if raw.strip().startswith("{"):
                 try:
                     summary_text = json.loads(raw).get("summary", raw)
-                except:
+                except Exception:
                     summary_text = raw[:100]
             else:
                 summary_text = raw.strip()
-        except:
-            needs_llm = False # Fallback to local on error
+        except Exception:
+            needs_llm = False  # Fallback to local on error
             
     if not needs_llm or not summary_text:
         # Local regex-based summarization
@@ -248,14 +244,16 @@ class LLMService:
     # Cache helpers
     # ------------------------------------------------------------------
 
-    def _get_cache_key(self, query: str, context_hash: str) -> str:
+    def _get_query_cache_key(self, query: str, context_hash: str) -> str:
+        """Helper to create a hash key for query+context."""
         return hashlib.md5(f"{query}:{context_hash}".encode()).hexdigest()
 
     def _get_rewrite_key(self, session_id: str, query: str) -> str:
+        """Helper to create a hash key for session-scoped rewriter."""
         return hashlib.md5(f"{session_id}:{query}".encode()).hexdigest()
 
-    def _get_cache_key(self, prompt: str) -> str:
-        """Helper to create a hash key for a prompt."""
+    def _get_prompt_hash(self, prompt: str) -> str:
+        """Helper to create a hash key for a raw prompt."""
         return hashlib.md5(prompt.encode()).hexdigest()
 
     def _is_simple_filter(self, message: str) -> bool:
@@ -485,14 +483,13 @@ class LLMService:
 
         try:
             # 1. Check response cache
-            cache_key = self._get_cache_key(prompt)
+            cache_key = self._get_prompt_hash(prompt)
             if cache_key in self._cache:
                 print("[CACHE HIT]")
                 self._hits += 1
                 # Move to end to maintain FIFO/LRU-like but the user said FIFO
                 # OrderedDict normally inserts at end and deletes from start (popitem(last=False))
                 # If we just want FIFO, we don't re-insert. If we want LRU, we re-insert.
-                # User said "evict the oldest entry (FIFO using collections.OrderedDict)".
                 # Standard FIFO in OrderedDict is achieved by always adding new entries at the end
                 # and popping from the front. We won't re-order on hits to preserve FIFO.
                 raw = self._cache[cache_key]
@@ -588,7 +585,7 @@ class LLMService:
 
         # 2. Cache check
         context_hash = hashlib.md5(full_context.encode()).hexdigest()
-        cache_key = self._get_cache_key(query, context_hash)
+        cache_key = self._get_query_cache_key(query, context_hash)
         if cache_key in self._query_cache:
             logger.info("Serving query response from cache")
             return self._query_cache[cache_key]
@@ -644,7 +641,7 @@ class LLMService:
 
         # 5. Call LLM
         # Response cache check
-        cache_key = self._get_cache_key(prompt)
+        cache_key = self._get_prompt_hash(prompt)
         if cache_key in self._cache:
             print("[CACHE HIT]")
             self._hits += 1
