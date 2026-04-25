@@ -638,6 +638,15 @@ async def get_cache_stats():
         raise HTTPException(status_code=500, detail="LLM Service not initialized")
     return llm_service.cache_stats()
 
+@app.get("/memory-stats")
+async def get_memory_stats():
+    """
+    Return LLM conversation memory statistics.
+    """
+    if not llm_service:
+        raise HTTPException(status_code=500, detail="LLM Service not initialized")
+    return llm_service.memory_stats()
+
 @app.post("/match-candidates")
 async def match_candidates(
     job_description: str = Form(...),

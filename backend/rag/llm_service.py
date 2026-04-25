@@ -121,36 +121,86 @@ def _estimate_tokens(text: str) -> int:
     return int(len(text.split()) * 1.3)
 
 
-def _trim_history_to_tokens(
+
+
+
+def _aggressive_trim(
     history: List[Dict[str, str]],
-    max_tokens: int = 2000,
-    hard_cap: int = 15,
-) -> List[Dict[str, str]]:
+    llm_provider: Optional[Any] = None,
+) -> Tuple[List[Dict[str, str]], Dict[str, int]]:
     """
-    Trim a history list so that:
-    1. Total token count stays under `max_tokens`.
-    2. Message count stays under `hard_cap`.
-    System / summary messages are always kept at the front.
+    Aggressively summarizes history after 4 turns (8 messages).
+    Keeps 1st turn and last 2 turns, summarizes the rest.
     """
-    # Separate system/summary messages from regular turns
-    system_msgs = [m for m in history if m.get("role") == "system"]
-    regular_msgs = [m for m in history if m.get("role") != "system"]
+    num_messages = len(history)
+    # Turn = 2 messages. 4 turns = 8 messages.
+    if num_messages <= 8:
+        tokens = sum(_estimate_tokens(m["content"]) for m in history)
+        return history, {"total": num_messages // 2, "summarized": 0, "tokens": tokens}
 
-    # Apply hard cap first (keep most recent)
-    if len(regular_msgs) > hard_cap:
-        regular_msgs = regular_msgs[-hard_cap:]
+    # Extract components
+    first_turn = history[:2]
+    last_two_turns = history[-4:]
+    middle_turns = history[2:-4]
+    
+    middle_text = " ".join([m["content"] for m in middle_turns]).lower()
+    
+    # Check for complex turns needing LLM fallback
+    needs_llm = any(
+        word in middle_text 
+        for word in ["compare", "explain", "why", "versus", "vs", "difference"]
+    )
+    
+    summary_text = ""
+    if needs_llm and llm_provider:
+        try:
+            prompt = (
+                "Summarize the following candidate search conversation history concisely, "
+                "focusing on the core technical requirements and filters discussed:\n\n"
+                f"{middle_text}\n\n"
+                "Summary (1 sentence):"
+            )
+            raw = llm_provider.generate_response(prompt, "You are a concise summarizer.")
+            # Basic cleanup if JSON returned
+            if raw.strip().startswith("{"):
+                try:
+                    summary_text = json.loads(raw).get("summary", raw)
+                except:
+                    summary_text = raw[:100]
+            else:
+                summary_text = raw.strip()
+        except:
+            needs_llm = False # Fallback to local on error
+            
+    if not needs_llm or not summary_text:
+        # Local regex-based summarization
+        topic = "general recruitment"
+        for skill in _COMMON_SKILLS:
+            if skill.lower() in middle_text:
+                topic = skill
+                break
+        
+        filters = "none"
+        exp_match = re.search(r'(\d+)\s*\+?\s*years?', middle_text)
+        if exp_match:
+            filters = f"{exp_match.group(1)}+ years"
+        
+        summary_text = f"candidate search for {topic}, filters applied: {filters}"
 
-    # Then apply token budget from the end (most recent first)
-    used = sum(_estimate_tokens(m.get("content", "")) for m in system_msgs)
-    trimmed: List[Dict[str, str]] = []
-    for msg in reversed(regular_msgs):
-        tokens = _estimate_tokens(msg.get("content", ""))
-        if used + tokens > max_tokens:
-            break
-        trimmed.insert(0, msg)
-        used += tokens
-
-    return system_msgs + trimmed
+    summary_msg = {
+        "role": "system", 
+        "content": f"[Summary: {summary_text}]"
+    }
+    
+    new_history = first_turn + [summary_msg] + last_two_turns
+    
+    stats = {
+        "total": num_messages // 2,
+        "summarized": (num_messages - 6) // 2,
+        "tokens": sum(_estimate_tokens(m["content"]) for m in new_history)
+    }
+    
+    return new_history, stats
 
 
 class LLMService:
@@ -176,6 +226,11 @@ class LLMService:
         self._cache = OrderedDict()
         self._hits = 0
         self._misses = 0
+
+        # Memory stats tracking
+        self._total_turns_processed = 0
+        self._summarized_turns_count = 0
+        self._last_tokens_estimate = 0
 
     # ------------------------------------------------------------------
     # Cache helpers
@@ -244,6 +299,14 @@ class LLMService:
             "hits": self._hits,
             "misses": self._misses,
             "size": len(self._cache)
+        }
+
+    def memory_stats(self) -> Dict[str, int]:
+        """Returns aggregate memory usage stats."""
+        return {
+            "total_turns": self._total_turns_processed,
+            "summarized_turns": self._summarized_turns_count,
+            "current_tokens_estimate": self._last_tokens_estimate
         }
 
     # ------------------------------------------------------------------
@@ -364,8 +427,12 @@ class LLMService:
             self._rewrite_cache[cache_key] = rewritten
             return rewritten
 
-        # Trim history before sending to LLM
-        trimmed = _trim_history_to_tokens(history, max_tokens=800, hard_cap=6)
+        # Aggressive trimming and summarization
+        trimmed, stats = _aggressive_trim(history, self.provider)
+        self._total_turns_processed += stats["total"]
+        self._summarized_turns_count += stats["summarized"]
+        self._last_tokens_estimate = stats["tokens"]
+        
         history_context = "\n".join(
             [f"{m['role'].upper()}: {m['content']}" for m in trimmed]
         )
@@ -464,8 +531,12 @@ class LLMService:
                     f"Missing: {cand['missing_skills']}\n"
                 )
 
-        # Trim history to token budget
-        trimmed_history = _trim_history_to_tokens(history, max_tokens=1200, hard_cap=10)
+        # Aggressive trimming and summarization
+        trimmed_history, stats = _aggressive_trim(history, self.provider)
+        self._total_turns_processed += stats["total"]
+        self._summarized_turns_count += stats["summarized"]
+        self._last_tokens_estimate = stats["tokens"]
+        
         history_context = ""
         if trimmed_history:
             history_context = "\n### Recent Conversation History:\n"
