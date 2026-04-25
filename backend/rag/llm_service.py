@@ -191,6 +191,53 @@ class LLMService:
         """Helper to create a hash key for a prompt."""
         return hashlib.md5(prompt.encode()).hexdigest()
 
+    def _is_simple_filter(self, message: str) -> bool:
+        """Determines if a message is a simple filter that doesn't need LLM."""
+        message_lower = message.lower()
+        keywords = ["only", "exclude", "without", "remove", "add", "more than", 
+                    "less than", "at least", "under", "over", "show me", "filter"]
+        negative_keywords = ["why", "how", "what", "explain", "compare"]
+        
+        has_keyword = any(k in message_lower for k in keywords)
+        is_short = len(message.split()) < 12
+        no_questions = not any(q in message_lower for q in negative_keywords)
+        
+        return (has_keyword or is_short) and no_questions
+
+    def _rule_based_rewrite(self, message: str, history: List[Dict]) -> str:
+        """Appends a simple filter to the last standalone query."""
+        base_query = ""
+        # Find the last user message that wasn't a simple filter
+        for msg in reversed(history):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if not self._is_simple_filter(content):
+                    base_query = content
+                    break
+        
+        if not base_query:
+            # Fallback to the first user message if no standalone found
+            for msg in history:
+                if msg.get("role") == "user":
+                    base_query = msg.get("content", "")
+                    break
+        
+        if not base_query:
+            return message
+
+        msg_clean = message.strip()
+        msg_lower = msg_clean.lower()
+        
+        # Natural language transformation for common patterns
+        if msg_lower.startswith("exclude "):
+            return f"{base_query} excluding {msg_clean[8:].strip()}"
+        if msg_lower.startswith("without "):
+            return f"{base_query} without {msg_clean[8:].strip()}"
+        if msg_lower.startswith("only "):
+            return f"{base_query} only {msg_clean[5:].strip()}"
+            
+        return f"{base_query} {msg_clean}"
+
     def cache_stats(self) -> Dict[str, int]:
         """Returns cache efficiency statistics."""
         return {
@@ -310,6 +357,13 @@ class LLMService:
             self._rewrite_cache[cache_key] = query
             return query
 
+        # Rule-based optimization for simple filters
+        if self._is_simple_filter(query):
+            rewritten = self._rule_based_rewrite(query, history)
+            print("[RULE REWRITE]")
+            self._rewrite_cache[cache_key] = rewritten
+            return rewritten
+
         # Trim history before sending to LLM
         trimmed = _trim_history_to_tokens(history, max_tokens=800, hard_cap=6)
         history_context = "\n".join(
@@ -357,6 +411,7 @@ class LLMService:
                 raw = self._cache[cache_key]
             else:
                 print("[CACHE MISS]")
+                print("[LLM REWRITE]")
                 self._misses += 1
                 raw = self.provider.generate_response(prompt, system_instruction)
                 
@@ -505,6 +560,7 @@ class LLMService:
             raw_response = self._cache[cache_key]
         else:
             print("[CACHE MISS]")
+            print("[LLM REWRITE]")
             self._misses += 1
             raw_response = self.provider.generate_response(prompt, system_instruction)
             
