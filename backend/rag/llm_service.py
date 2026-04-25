@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional, Union, Tuple
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 import google.generativeai as genai
+from collections import OrderedDict
 from .vector_store import RAGVectorStore
 
 # Load environment variables
@@ -170,6 +171,11 @@ class LLMService:
         # In-memory caches
         self._query_cache: Dict[str, Any] = {}           # Keyed by query+context hash
         self._rewrite_cache: Dict[str, str] = {}         # Per-session: query -> rewritten
+        
+        # Responses cache (FIFO, max 256)
+        self._cache = OrderedDict()
+        self._hits = 0
+        self._misses = 0
 
     # ------------------------------------------------------------------
     # Cache helpers
@@ -180,6 +186,18 @@ class LLMService:
 
     def _get_rewrite_key(self, session_id: str, query: str) -> str:
         return hashlib.md5(f"{session_id}:{query}".encode()).hexdigest()
+
+    def _get_cache_key(self, prompt: str) -> str:
+        """Helper to create a hash key for a prompt."""
+        return hashlib.md5(prompt.encode()).hexdigest()
+
+    def cache_stats(self) -> Dict[str, int]:
+        """Returns cache efficiency statistics."""
+        return {
+            "hits": self._hits,
+            "misses": self._misses,
+            "size": len(self._cache)
+        }
 
     # ------------------------------------------------------------------
     # Intent extraction
@@ -325,7 +343,28 @@ class LLMService:
         )
 
         try:
-            raw = self.provider.generate_response(prompt, system_instruction)
+            # 1. Check response cache
+            cache_key = self._get_cache_key(prompt)
+            if cache_key in self._cache:
+                print("[CACHE HIT]")
+                self._hits += 1
+                # Move to end to maintain FIFO/LRU-like but the user said FIFO
+                # OrderedDict normally inserts at end and deletes from start (popitem(last=False))
+                # If we just want FIFO, we don't re-insert. If we want LRU, we re-insert.
+                # User said "evict the oldest entry (FIFO using collections.OrderedDict)".
+                # Standard FIFO in OrderedDict is achieved by always adding new entries at the end
+                # and popping from the front. We won't re-order on hits to preserve FIFO.
+                raw = self._cache[cache_key]
+            else:
+                print("[CACHE MISS]")
+                self._misses += 1
+                raw = self.provider.generate_response(prompt, system_instruction)
+                
+                # 2. Update cache with FIFO eviction
+                if len(self._cache) >= 256:
+                    self._cache.popitem(last=False)  # Remove oldest
+                self._cache[cache_key] = raw
+
             parsed = self._robust_json_parse(raw)
             rewritten = parsed.get("rewritten_query", query)
         except Exception:
@@ -458,7 +497,21 @@ class LLMService:
         )
 
         # 5. Call LLM
-        raw_response = self.provider.generate_response(prompt, system_instruction)
+        # Response cache check
+        cache_key = self._get_cache_key(prompt)
+        if cache_key in self._cache:
+            print("[CACHE HIT]")
+            self._hits += 1
+            raw_response = self._cache[cache_key]
+        else:
+            print("[CACHE MISS]")
+            self._misses += 1
+            raw_response = self.provider.generate_response(prompt, system_instruction)
+            
+            # Update cache (FIFO)
+            if len(self._cache) >= 256:
+                self._cache.popitem(last=False)
+            self._cache[cache_key] = raw_response
 
         # 6. Parse and format
         try:

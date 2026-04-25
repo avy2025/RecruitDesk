@@ -629,6 +629,15 @@ async def health_check():
         "decision_engine": True,
     }
 
+@app.get("/cache-stats")
+async def get_cache_stats():
+    """
+    Return LLM response cache statistics.
+    """
+    if not llm_service:
+        raise HTTPException(status_code=500, detail="LLM Service not initialized")
+    return llm_service.cache_stats()
+
 @app.post("/match-candidates")
 async def match_candidates(
     job_description: str = Form(...),
