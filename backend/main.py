@@ -647,6 +647,15 @@ async def get_memory_stats():
         raise HTTPException(status_code=500, detail="LLM Service not initialized")
     return llm_service.memory_stats()
 
+@app.get("/model-info")
+async def get_model_info():
+    """
+    Return active LLM model metadata and cost-control guardrails.
+    """
+    if not llm_service:
+        raise HTTPException(status_code=500, detail="LLM Service not initialized")
+    return llm_service.model_info()
+
 @app.post("/match-candidates")
 async def match_candidates(
     job_description: str = Form(...),

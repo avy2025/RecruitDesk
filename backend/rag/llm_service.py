@@ -15,6 +15,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+ALLOWED_MODELS = {"gemini-1.5-flash", "gemini-1.0-pro"}
+DEFAULT_MODEL = "gemini-1.5-flash"
+
 # ---------------------------------------------------------------------------
 # Common skill keyword set for intent extraction (extends parser's DB if
 # needed; kept here to avoid circular imports)
@@ -44,13 +47,22 @@ class LLMProvider(ABC):
 
 class GeminiProvider(LLMProvider):
     """Google Gemini implementation."""
-    def __init__(self, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, model_name: str = DEFAULT_MODEL):
+        # Startup Safety Check (Model Guard)
+        self.requested_model = model_name
+        if self.requested_model not in ALLOWED_MODELS:
+            print(f"[MODEL GUARD] Overriding {self.requested_model} → {DEFAULT_MODEL} to control API costs")
+            self.model_name = DEFAULT_MODEL
+            logger.warning(f"Model {self.requested_model} not in allowed list. Overriding to {DEFAULT_MODEL}.")
+        else:
+            self.model_name = self.requested_model
+
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             logger.warning("GOOGLE_API_KEY not found in environment variables.")
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(
-            model_name=model_name,
+            model_name=self.model_name,
             generation_config={"response_mime_type": "application/json"}
         )
 
@@ -307,6 +319,14 @@ class LLMService:
             "total_turns": self._total_turns_processed,
             "summarized_turns": self._summarized_turns_count,
             "current_tokens_estimate": self._last_tokens_estimate
+        }
+
+    def model_info(self) -> Dict[str, Any]:
+        """Returns active model metadata and guardrails."""
+        return {
+            "active_model": self.provider.model_name if hasattr(self.provider, 'model_name') else "unknown",
+            "allowed_models": list(ALLOWED_MODELS),
+            "cache_enabled": True
         }
 
     # ------------------------------------------------------------------
