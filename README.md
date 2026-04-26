@@ -29,10 +29,11 @@ Unlike traditional keyword-based filters, RecruitDesk AI understands the *intent
 ## 🎯 Features
 
 ### 🧠 Intelligence Suite
-- **Advanced JD Analyzer**: Extracts "Must-Haves", "Nice-to-Haves", seniority levels, and experience requirements using spaCy & Regex logic.
-- **Hybrid Scoring v2**: A weighted algorithm (Semantic 60% + Skills 40%) that prioritizes candidates based on classified JD priorities.
-- **RAG-Powered Chat**: Converse with your resume database. Ask questions like *"Who has the strongest AWS experience?"* or *"Summarize Candidate X's leadership roles."*
+- **Refined JD Analysis Engine**: High-fidelity extraction of "Must-Haves", "Nice-to-Haves", seniority levels, and experience requirements using context-aware spaCy & Regex logic.
+- **Hybrid Scoring v2**: A weighted algorithm (Semantic 60% + Skills 40%) that prioritizes candidates based on classified JD priorities. now with support for domain-specific technical keyword weighted extraction.
+- **RAG-Powered Chat**: Converse with your resume database with session-aware memory, context drift detection, and automated history summarization.
 - **Explainable AI (XAI)**: Not just a score—get detailed reasoning, strength breakdowns, and technical gap analysis for every candidate.
+- **Smart Query Rewriting**: Intelligent conversion of shorthand user follow-ups into standalone, filter-aware RAG queries.
 
 ### ⚡ Performance & Cost Control
 - **Intelligent Response Caching**: Hash-based in-memory cache (MD5) for LLM responses with FIFO eviction to minimize redundant API calls.
