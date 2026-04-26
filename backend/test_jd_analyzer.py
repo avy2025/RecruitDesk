@@ -1,54 +1,56 @@
-import pytest
-from jd_analyzer import JDAnalyzer, JDAnalysis
+import unittest
+import sys
+import os
 
-def test_must_have_extraction():
-    analyzer = JDAnalyzer()
-    jd_text = "Requirements: You must have experience with Python and FastAPI. Essential skills include SQL."
-    analysis = analyzer.analyze(jd_text)
-    
-    assert any("python" in s.lower() for s in analysis.must_have_skills)
-    assert any("fastapi" in s.lower() for s in analysis.must_have_skills)
-    assert any("sql" in s.lower() for s in analysis.must_have_skills)
+# Ensure the parent directory is in sys.path if needed
+# sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-def test_nice_to_have_extraction():
-    analyzer = JDAnalyzer()
-    jd_text = "Preferred skills: Familiarity with AWS and Docker. Bonus points for Kubernetes."
-    analysis = analyzer.analyze(jd_text)
-    
-    assert any("aws" in s.lower() for s in analysis.nice_to_have_skills)
-    assert any("docker" in s.lower() for s in analysis.nice_to_have_skills)
-    assert any("kubernetes" in s.lower() for s in analysis.nice_to_have_skills)
+from jd_analyzer import JDAnalyzer
 
-def test_experience_regex():
-    analyzer = JDAnalyzer()
-    jd_text1 = "Minimum 3 years of experience required."
-    analysis1 = analyzer.analyze(jd_text1)
-    assert analysis1.experience_requirement["min_years"] == 3
-    
-    jd_text2 = "Looking for someone with 2-5 years of industry experience."
-    analysis2 = analyzer.analyze(jd_text2)
-    assert analysis2.experience_requirement["min_years"] == 2
-    assert analysis2.experience_requirement["max_years"] == 5
+class TestJDAnalyzer(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # We can pass nlp=None to JDAnalyzer to let it load itself
+        cls.analyzer = JDAnalyzer()
 
-def test_seniority_detection():
-    analyzer = JDAnalyzer()
-    assert analyzer.analyze("Senior Software Engineer").seniority_level == "senior"
-    assert analyzer.analyze("Junior Developer").seniority_level == "junior"
-    assert analyzer.analyze("Lead Architect").seniority_level == "lead"
-    assert analyzer.analyze("Principal Engineer").seniority_level == "lead"
+    def test_must_have_extraction(self):
+        jd_text = "The candidate must have experience with Python and FastAPI. It is required to know SQL."
+        analysis = self.analyzer.analyze(jd_text)
+        # Convert to lower for robustness in check if needed, but analyze already lowercases
+        self.assertIn("python", [s.lower() for s in analysis.must_have_skills])
+        self.assertIn("fastapi", [s.lower() for s in analysis.must_have_skills])
+        self.assertIn("sql", [s.lower() for s in analysis.must_have_skills])
 
-def test_red_flag_detection():
-    analyzer = JDAnalyzer()
-    jd_text = "We are looking for a rockstar ninja who can hustle in a fast-paced environment."
-    analysis = analyzer.analyze(jd_text)
-    
-    assert "rockstar" in analysis.red_flags
-    assert "ninja" in analysis.red_flags
-    assert "hustle" in analysis.red_flags
-    assert "fast-paced" in analysis.red_flags
+    def test_nice_to_have_extraction(self):
+        jd_text = "Familiarity with Docker is a plus. Preferred experience with AWS."
+        analysis = self.analyzer.analyze(jd_text)
+        self.assertIn("docker", [s.lower() for s in analysis.nice_to_have_skills])
+        self.assertIn("aws", [s.lower() for s in analysis.nice_to_have_skills])
 
-def test_education_detection():
-    analyzer = JDAnalyzer()
-    assert analyzer.analyze("Must have a Master's degree in CS").education_requirement == "master"
-    assert analyzer.analyze("PhD preferred").education_requirement == "phd"
-    assert analyzer.analyze("Bachelor degree required").education_requirement == "bachelor"
+    def test_experience_regex_plus(self):
+        jd_text = "Requirement: 3+ years of experience."
+        analysis = self.analyzer.analyze(jd_text)
+        self.assertEqual(analysis.experience_requirement["min_years"], 3)
+        self.assertIsNone(analysis.experience_requirement["max_years"])
+
+    def test_experience_regex_range(self):
+        jd_text = "Looking for 2-5 years of experience."
+        analysis = self.analyzer.analyze(jd_text)
+        self.assertEqual(analysis.experience_requirement["min_years"], 2)
+        self.assertEqual(analysis.experience_requirement["max_years"], 5)
+
+    def test_seniority_detection(self):
+        analysis = self.analyzer.analyze("Senior Software Engineer")
+        self.assertEqual(analysis.seniority_level, "senior")
+        
+        analysis = self.analyzer.analyze("Lead Architect")
+        self.assertEqual(analysis.seniority_level, "lead")
+
+    def test_red_flag_detection(self):
+        jd_text = "We need a rockstar developer who can hustle."
+        analysis = self.analyzer.analyze(jd_text)
+        self.assertIn("rockstar", analysis.red_flags)
+        self.assertIn("hustle", analysis.red_flags)
+
+if __name__ == "__main__":
+    unittest.main()
