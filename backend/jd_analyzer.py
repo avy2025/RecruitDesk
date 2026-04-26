@@ -1,18 +1,18 @@
 from dataclasses import dataclass, asdict
 import re
 import spacy
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional
 
 @dataclass
 class JDAnalysis:
-    must_have_skills: List[str]       # explicitly required ("must", "required", "essential")
-    nice_to_have_skills: List[str]    # soft signals ("preferred", "plus", "bonus", "familiar")
-    experience_requirement: Dict      # {"min_years": int, "max_years": int | None}
-    education_requirement: Optional[str] # "bachelor", "master", "phd", or None
-    seniority_level: str              # "junior", "mid", "senior", "lead", "any"
-    domain_keywords: List[str]        # core domain terms (e.g. "machine learning", "REST API")
-    soft_skills: List[str]            # communication, leadership, teamwork etc.
-    red_flags: List[str]              # vague/inflated JD signals: "rockstar", "ninja", "hustle culture"
+    must_have_skills: list[str]        # from "required", "must", "essential", "mandatory" sentences
+    nice_to_have_skills: list[str]     # from "preferred", "plus", "bonus", "familiar" sentences
+    experience_requirement: dict       # {"min_years": int, "max_years": int | None}
+    education_requirement: str | None  # "bachelor", "master", "phd", or None
+    seniority_level: str               # "junior", "mid", "senior", "lead", "any"
+    domain_keywords: list[str]         # technical terms not in must_have or nice_to_have
+    soft_skills: list[str]             # matched from hardcoded list
+    red_flags: list[str]               # inflated JD language detected
 
 class JDAnalyzer:
     def __init__(self, nlp=None):
@@ -23,34 +23,46 @@ class JDAnalyzer:
                 self.nlp = spacy.load("en_core_web_sm")
             except OSError:
                 self.nlp = spacy.blank("en")
-
-        self.soft_skills_list = [
-            "communication", "leadership", "teamwork", "problem-solving", 
-            "collaboration", "time management", "adaptability", "attention to detail"
-        ]
         
-        self.red_flags_list = [
-            "rockstar", "ninja", "wizard", "hustle", "wear many hats", 
-            "fast-paced", "self-starter", "passionate"
-        ]
+        self.soft_skills_list = ["communication", "leadership", "teamwork", "problem-solving", "collaboration", "time management", "adaptability", "attention to detail", "critical thinking", "ownership"]
+        self.red_flags_list = ["rockstar", "ninja", "wizard", "hustle", "wear many hats", "fast-paced", "self-starter", "passionate", "go-getter", "superhero"]
+        
+        try:
+            from rag.parser import TECH_SKILLS_DB
+            self.tech_skills = TECH_SKILLS_DB
+        except ImportError:
+            self.tech_skills = set()
 
     def analyze(self, jd_text: str) -> JDAnalysis:
         doc = self.nlp(jd_text)
-        sentences = [sent.text for sent in doc.sents]
+        sentences = list(doc.sents)
         
-        must_have_skills = self._extract_skills_by_keywords(sentences, ["must", "required", "essential", "mandatory"])
-        nice_to_have_skills = self._extract_skills_by_keywords(sentences, ["preferred", "nice to have", "plus", "bonus", "familiarity with"])
+        must_have_keywords = ["required", "must have", "essential", "mandatory", "must"]
+        nice_to_have_keywords = ["preferred", "nice to have", "a plus", "bonus", "familiarity with", "familiar"]
         
-        # Deduplicate: if it's in must-have, it shouldn't be in nice-to-have or domain_keywords
-        must_have_set = set(must_have_skills)
-        nice_to_have_set = set(nice_to_have_skills) - must_have_set
+        must_have_skills = []
+        nice_to_have_skills = []
         
-        all_tech_chunks = self._extract_noun_chunks(jd_text)
-        domain_keywords = sorted(list(set(all_tech_chunks) - must_have_set - nice_to_have_set))
+        for sent in sentences:
+            sent_text = sent.text.lower()
+            # Check must-have first
+            if any(kw in sent_text for kw in must_have_keywords):
+                must_have_skills.extend(self._extract_terms(sent))
+            elif any(kw in sent_text for kw in nice_to_have_keywords):
+                nice_to_have_skills.extend(self._extract_terms(sent))
+        
+        must_have_skills = sorted(list(set(must_have_skills)))
+        nice_to_have_skills = sorted(list(set(nice_to_have_skills)))
+        
+        # domain_keywords: all technical noun chunks from the full JD not already captured in must_have or nice_to_have
+        all_terms = self._extract_terms(doc)
+        must_set = set(must_have_skills)
+        nice_set = set(nice_to_have_skills)
+        domain_keywords = sorted(list(set(all_terms) - must_set - nice_set))
         
         return JDAnalysis(
-            must_have_skills=sorted(list(must_have_set)),
-            nice_to_have_skills=sorted(list(nice_to_have_set)),
+            must_have_skills=must_have_skills,
+            nice_to_have_skills=nice_to_have_skills,
             experience_requirement=self._extract_experience(jd_text),
             education_requirement=self._extract_education(jd_text),
             seniority_level=self._extract_seniority(jd_text),
@@ -59,104 +71,68 @@ class JDAnalyzer:
             red_flags=self._match_list(jd_text, self.red_flags_list)
         )
 
-    def _extract_skills_by_keywords(self, sentences: List[str], keywords: List[str]) -> List[str]:
-        extracted_skills = set()
-        for sent in sentences:
-            sent_lower = sent.lower()
-            if any(kw in sent_lower for kw in keywords):
-                # Extract noun chunks from this sentence
-                doc = self.nlp(sent)
-                for chunk in doc.noun_chunks:
-                    # Clean the chunk
-                    text = chunk.text.lower().strip()
-                    # Filter out the keyword itself and common filler words
-                    if text not in keywords and len(text) > 1 and not self.nlp.vocab[text].is_stop:
-                        extracted_skills.add(text)
-        return list(extracted_skills)
-
-    def _extract_noun_chunks(self, text: str) -> List[str]:
-        doc = self.nlp(text)
-        chunks = set()
-        for chunk in doc.noun_chunks:
-            t = chunk.text.lower().strip()
-            if len(t) > 2 and not self.nlp.vocab[t].is_stop:
-                chunks.add(t)
-        return list(chunks)
+    def _extract_terms(self, doc_or_sent) -> List[str]:
+        terms = []
+        # Extract noun chunks
+        if hasattr(doc_or_sent, "noun_chunks"):
+            for chunk in doc_or_sent.noun_chunks:
+                text = chunk.text.lower().strip()
+                if len(text) > 1 and not self.nlp.vocab[text].is_stop:
+                    terms.append(text)
+        
+        # Extract known tech tokens
+        for token in doc_or_sent:
+            text = token.text.lower().strip()
+            if text in self.tech_skills:
+                terms.append(text)
+        
+        return list(set(terms))
 
     def _extract_experience(self, text: str) -> Dict:
         text_lower = text.lower()
-        min_years = 0
-        max_years = None
         
-        # Try range first: "2-5 years"
+        # Range: "2-5 years"
         range_match = re.search(r"(\d+)\s*-\s*(\d+)\s*years?", text_lower)
         if range_match:
-            min_years = int(range_match.group(1))
-            max_years = int(range_match.group(2))
-            return {"min_years": min_years, "max_years": max_years}
-
-        # Try "X+ years", "minimum X years", "X years"
-        patterns = [
-            r"(\d+)\+\s*years?",
-            r"minimum\s*(\d+)\s*years?",
-            r"at least\s*(\d+)\s*years?",
-            r"(\d+)\s*years?"
-        ]
+            return {"min_years": int(range_match.group(1)), "max_years": int(range_match.group(2))}
         
-        for p in patterns:
-            match = re.search(p, text_lower)
-            if match:
-                min_years = int(match.group(1))
-                break
-                        
-        return {"min_years": min_years, "max_years": max_years}
+        # Plus: "3+ years"
+        plus_match = re.search(r"(\d+)\+\s*years?", text_lower)
+        if plus_match:
+            return {"min_years": int(plus_match.group(1)), "max_years": None}
+            
+        # Min/At least: "minimum 4 years", "at least 2 years"
+        min_match = re.search(r"(?:minimum|at least)\s*(\d+)\s*years?", text_lower)
+        if min_match:
+            return {"min_years": int(min_match.group(1)), "max_years": None}
+            
+        # Simple: "5 years"
+        simple_match = re.search(r"(\d+)\s*years?", text_lower)
+        if simple_match:
+            return {"min_years": int(simple_match.group(1)), "max_years": None}
+            
+        return {"min_years": 0, "max_years": None}
 
     def _extract_education(self, text: str) -> Optional[str]:
         text_lower = text.lower()
-        levels = {
-            "phd": 4,
-            "doctorate": 4,
-            "master": 3,
-            "msc": 3,
-            "mba": 3,
-            "bachelor": 2,
-            "bsc": 2,
-            "degree": 1
-        }
-        
-        highest_level = None
-        highest_val = 0
-        
-        for kw, val in levels.items():
-            if kw in text_lower:
-                if val > highest_val:
-                    highest_val = val
-                    if val == 4: highest_level = "phd"
-                    elif val == 3: highest_level = "master"
-                    elif val == 2: highest_level = "bachelor"
-                    elif val == 1: highest_level = "degree"
-        
-        return highest_level
+        if "phd" in text_lower or "doctorate" in text_lower:
+            return "phd"
+        if "master" in text_lower:
+            return "master"
+        if "bachelor" in text_lower or "degree" in text_lower:
+            return "bachelor"
+        return None
 
     def _extract_seniority(self, text: str) -> str:
         text_lower = text.lower()
-        mapping = {
-            "entry level": "junior",
-            "junior": "junior",
-            "associate": "mid",
-            "mid level": "mid",
-            "mid-level": "mid",
-            "senior": "senior",
-            "lead": "lead",
-            "staff": "lead",
-            "principal": "lead",
-            "head of": "lead"
-        }
-        
-        for kw, level in reversed(list(mapping.items())): # Check senior levels first
-            if kw in text_lower:
-                return level
-        
+        if any(kw in text_lower for kw in ["lead", "staff", "principal"]):
+            return "lead"
+        if "senior" in text_lower:
+            return "senior"
+        if any(kw in text_lower for kw in ["mid", "intermediate"]):
+            return "mid"
+        if any(kw in text_lower for kw in ["junior", "entry level"]):
+            return "junior"
         return "any"
 
     def _match_list(self, text: str, items: List[str]) -> List[str]:
