@@ -184,11 +184,17 @@ def extract_entities(text: str) -> Dict[str, List[str]]:
 # --------------------------------------------------
 
 
-def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]) -> Dict[str, float]:
+def calculate_section_aware_score(
+    job_text: str, 
+    resume_sections: Dict[str, str],
+    job_embedding: Optional[Any] = None,
+    precomputed_embeddings: Optional[Dict[str, Any]] = None
+) -> Dict[str, float]:
     """
     Calculate semantic similarity scores for each section separately
     """
-    job_embedding = get_embedding(model, job_text, convert_to_tensor=True)
+    if job_embedding is None:
+        job_embedding = get_embedding(model, job_text, convert_to_tensor=True)
     
     section_scores = {}
     weights = {
@@ -199,9 +205,14 @@ def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]
         "projects": 0.10
     }
     
-    for section, text in resume_sections.items():
+    for section in weights.keys():
+        text = resume_sections.get(section, "")
         if text.strip() and len(text.strip()) > 20:
-            section_embedding = get_embedding(model, text, convert_to_tensor=True)
+            if precomputed_embeddings and section in precomputed_embeddings:
+                section_embedding = precomputed_embeddings[section]
+            else:
+                section_embedding = get_embedding(model, text, convert_to_tensor=True)
+                
             score = float(util.cos_sim(job_embedding, section_embedding)[0][0]) * 100
             section_scores[section] = round(score, 2)
         else:
@@ -220,12 +231,24 @@ def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]
     }
 
 
-def calculate_hybrid_score(job_text: str, resume_text: str, resume_details: Dict, jd_analysis: Optional[JDAnalysis] = None) -> Dict[str, Any]:
+def calculate_hybrid_score(
+    job_text: str, 
+    resume_text: str, 
+    resume_details: Dict, 
+    jd_analysis: Optional[JDAnalysis] = None,
+    job_embedding: Optional[Any] = None,
+    precomputed_embeddings: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     Calculate a hybrid score based on section-aware semantic similarity, keyword overlap, and skills.
     """
     # 1. Section-aware Semantic Score
-    section_data = calculate_section_aware_score(job_text, resume_details['sections'])
+    section_data = calculate_section_aware_score(
+        job_text, 
+        resume_details['sections'], 
+        job_embedding=job_embedding, 
+        precomputed_embeddings=precomputed_embeddings
+    )
     semantic_score = section_data['weighted_semantic_score']
     
     # 2. Extract Years of Experience
@@ -359,7 +382,8 @@ async def _rank_resumes_internal(
         # 0. Analyze Job Description
         jd_analysis = jd_analyzer.analyze(job_description) if jd_analyzer else None
         
-        # Process each resume
+        # 1. First Pass: Extract text and sections from all resumes
+        resume_batch_data = []
         for resume_file in resumes:
             # Validate file type
             if not resume_file.filename.lower().endswith('.pdf'):
@@ -373,7 +397,7 @@ async def _rank_resumes_internal(
                 temp_file_path = temp_file.name
                 temp_files.append(temp_file_path)
             
-            # Extract text from file (PDF or DOCX)
+            # Extract text from file
             resume_text = parse_file(temp_file_path)
             
             if not resume_text or len(resume_text.strip()) < 50:
@@ -385,11 +409,60 @@ async def _rank_resumes_internal(
                 })
                 continue
             
-            # Parse sections (using internal logic for now as it's UI specific)
+            # Parse sections and metadata
             sections = parse_resume_sections(resume_text)
-            
-            # Centralized metadata extraction
             metadata = extract_metadata(resume_text)
+            
+            resume_batch_data.append({
+                "filename": resume_file.filename,
+                "resume_text": resume_text,
+                "sections": sections,
+                "metadata": metadata,
+                "temp_file_path": temp_file_path
+            })
+
+        if not resume_batch_data:
+            return {
+                "success": True,
+                "total_resumes": len(results),
+                "jd_analysis": asdict(jd_analysis) if jd_analysis else None,
+                "ranked_resumes": results
+            }
+
+        # 2. Compute Job Description Embedding (Cached)
+        job_embedding = get_embedding(model, job_description, convert_to_tensor=True)
+
+        # 3. Batch Encode all Resume Sections (Non-cached as requested)
+        texts_to_encode = []
+        text_map = [] # To map embeddings back to (resume_index, section_name)
+
+        weights_keys = ["skills", "experience", "education", "summary", "projects"]
+        
+        for idx, data in enumerate(resume_batch_data):
+            for section in weights_keys:
+                text = data["sections"].get(section, "")
+                if text.strip() and len(text.strip()) > 20:
+                    texts_to_encode.append(text)
+                    text_map.append((idx, section))
+        
+        # Perform batched encoding
+        all_embeddings = []
+        if texts_to_encode:
+            logger.info(f"Batch encoding {len(texts_to_encode)} section texts across {len(resume_batch_data)} resumes")
+            all_embeddings = model.encode(texts_to_encode, batch_size=16, convert_to_tensor=True)
+        
+        # Distribute embeddings back to resume_batch_data
+        for resume_data in resume_batch_data:
+            resume_data["precomputed_embeddings"] = {}
+            
+        for i, (resume_idx, section_name) in enumerate(text_map):
+            resume_batch_data[resume_idx]["precomputed_embeddings"][section_name] = all_embeddings[i]
+
+        # 4. Second Pass: Calculate match scores and generate full results
+        for data in resume_batch_data:
+            resume_text = data["resume_text"]
+            sections = data["sections"]
+            metadata = data["metadata"]
             
             resume_details = {
                 "sections": sections,
@@ -399,8 +472,15 @@ async def _rank_resumes_internal(
                 }
             }
             
-            # Calculate match scores
-            match_data = calculate_hybrid_score(job_description, resume_text, resume_details, jd_analysis)
+            # Calculate match scores using precomputed embeddings
+            match_data = calculate_hybrid_score(
+                job_description, 
+                resume_text, 
+                resume_details, 
+                jd_analysis,
+                job_embedding=job_embedding,
+                precomputed_embeddings=data["precomputed_embeddings"]
+            )
             
             # Generate summary reasons
             match_reasons = []
@@ -418,14 +498,14 @@ async def _rank_resumes_internal(
 
             # Store in RAG system for Chat Intelligence
             try:
-                ingest_result = resume_loader.ingest(temp_file_path)
+                ingest_result = resume_loader.ingest(data["temp_file_path"])
                 candidate_id = ingest_result.get("candidate_id")
             except Exception as ingest_err:
-                logger.warning(f"Auto-ingestion failed for {resume_file.filename}: {ingest_err}")
+                logger.warning(f"Auto-ingestion failed for {data['filename']}: {ingest_err}")
                 candidate_id = None
 
             results.append({
-                "filename": resume_file.filename,
+                "filename": data["filename"],
                 "candidate_id": candidate_id,
                 "match_percentage": match_data['final_score'],
                 "summary": summary,
@@ -447,7 +527,7 @@ async def _rank_resumes_internal(
                 "jd_analysis": asdict(jd_analysis) if jd_analysis else None
             })
             
-            logger.info(f"{resume_file.filename}: {match_data['final_score']}% match (ID: {candidate_id})")
+            logger.info(f"{data['filename']}: {match_data['final_score']}% match (ID: {candidate_id})")
         
         # Sort results by match percentage (highest first)
         results.sort(key=lambda x: x.get('match_percentage', 0), reverse=True)
