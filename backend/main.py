@@ -11,6 +11,9 @@ import os
 import logging
 import spacy
 import re
+import hashlib
+import pickle
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import asdict
 from rag.embedder import RAGEmbedder
@@ -57,11 +60,52 @@ memory_store = None
 jd_analyzer = None
 decision_engine = HiringDecisionEngine()
 
+# Embedding Cache Configuration
+EMBED_CACHE_DIR = Path(".embed_cache")
+
+def get_embedding(model, text: str, **kwargs):
+    """
+    Get embedding for text from cache if available, otherwise compute and store it.
+    """
+    if not text or not text.strip():
+        return model.encode(text, **kwargs)
+    
+    # 1. Compute MD5 hash of the text
+    text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+    cache_file = EMBED_CACHE_DIR / f"{text_hash}.pkl"
+    
+    # 2. Check if cache exists
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'rb') as f:
+                return pickle.load(f)
+        except Exception as e:
+            logger.warning(f"Error loading cached embedding for hash {text_hash}: {e}")
+    
+    # 3. Compute embedding
+    embedding = model.encode(text, **kwargs)
+    
+    # 4. Save to cache
+    try:
+        if not EMBED_CACHE_DIR.exists():
+            EMBED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, 'wb') as f:
+            pickle.dump(embedding, f)
+    except Exception as e:
+        logger.warning(f"Error caching embedding for hash {text_hash}: {e}")
+        
+    return embedding
+
 
 @app.on_event("startup")
 async def load_models():
     """Load the sentence transformer model and spaCy model at startup"""
     global model, nlp
+    
+    # Ensure cache directory exists
+    if not EMBED_CACHE_DIR.exists():
+        logger.info(f"Creating embedding cache directory: {EMBED_CACHE_DIR}")
+        EMBED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     
     # Load Sentence Transformer
     logger.info("Loading sentence-transformers model: all-mpnet-base-v2 (This may take a while on first run)")
@@ -144,7 +188,7 @@ def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]
     """
     Calculate semantic similarity scores for each section separately
     """
-    job_embedding = model.encode(job_text, convert_to_tensor=True)
+    job_embedding = get_embedding(model, job_text, convert_to_tensor=True)
     
     section_scores = {}
     weights = {
@@ -157,7 +201,7 @@ def calculate_section_aware_score(job_text: str, resume_sections: Dict[str, str]
     
     for section, text in resume_sections.items():
         if text.strip() and len(text.strip()) > 20:
-            section_embedding = model.encode(text, convert_to_tensor=True)
+            section_embedding = get_embedding(model, text, convert_to_tensor=True)
             score = float(util.cos_sim(job_embedding, section_embedding)[0][0]) * 100
             section_scores[section] = round(score, 2)
         else:
