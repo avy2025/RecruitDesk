@@ -173,6 +173,20 @@ def _estimate_tokens(text: str) -> int:
     """Rough estimate: words × 1.3."""
     return int(len(text.split()) * 1.3)
 
+def quick_filter(resume_text: str, jd_keywords: set, threshold: float = 0.05) -> bool:
+    """
+    Lightweight keyword-based pre-filter to eliminate irrelevant resumes.
+    """
+    if not jd_keywords:
+        return True
+    
+    resume_words = set(re.findall(r'\b\w+\b', resume_text.lower()))
+    if not resume_words:
+        return False
+        
+    overlap_ratio = len(resume_words & jd_keywords) / len(jd_keywords)
+    return overlap_ratio >= threshold
+
 def extract_entities(text: str) -> Dict[str, List[str]]:
     """
     Legacy wrapper for entity extraction. 
@@ -427,6 +441,47 @@ async def _rank_resumes_internal(
             })
 
         if not resume_batch_data:
+            return {
+                "success": True,
+                "total_resumes": len(results),
+                "jd_analysis": asdict(jd_analysis) if jd_analysis else None,
+                "ranked_resumes": results
+            }
+
+        # 1.5 Quick Keywords Filter
+        common_stopwords = {'a', 'an', 'the', 'and', 'or', 'is', 'to', 'of', 'in', 'for', 'with', 'that', 'this', 'are', 'be', 'as', 'at', 'by'}
+        jd_words = set(re.findall(r'\b\w+\b', job_description.lower()))
+        jd_keywords = jd_words - common_stopwords
+        
+        passed_resume_batch_data = []
+        for data in resume_batch_data:
+            if not quick_filter(data["resume_text"], jd_keywords, threshold=0.05):
+                logger.info(f"Filtering out {data['filename']} due to low keyword overlap")
+                results.append({
+                    "filename": data["filename"],
+                    "candidate_id": None,
+                    "match_percentage": 0.0,
+                    "summary": "Processed. Higher irrelevancy detected.",
+                    "years_of_experience": data["metadata"].get("experience", 0),
+                    "top_strengths": [],
+                    "match_details": {
+                        "semantic_score": 0.0,
+                        "skill_score": 0.0,
+                        "keyword_score": 0.0,
+                        "matched_skills": [],
+                        "missing_skills": [],
+                        "section_breakdown": {},
+                        "match_reasons": ["Filtered out: insufficient keyword overlap with job description"]
+                    },
+                    "jd_analysis": asdict(jd_analysis) if jd_analysis else None
+                })
+            else:
+                passed_resume_batch_data.append(data)
+        
+        resume_batch_data = passed_resume_batch_data
+
+        if not resume_batch_data:
+            # All resumes were filtered out
             return {
                 "success": True,
                 "total_resumes": len(results),
