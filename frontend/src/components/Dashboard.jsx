@@ -740,6 +740,8 @@ const Dashboard = () => {
                                                 summary={result.summary}
                                                 yoe={result.years_of_experience}
                                                 topStrengths={result.top_strengths}
+                                                jobDescription={jobDescription}
+                                                _internal={result._internal}
                                                 onGenerateQuestions={handleGenerateQuestions}
                                                 onOpenChat={(id, name) => {
                                                     setChatCandidate({ id, name });

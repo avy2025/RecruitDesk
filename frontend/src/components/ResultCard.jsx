@@ -6,7 +6,7 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } fro
  * ResultCard Component
  * Displays individual resume ranking result with glassmorphism design and AI insights
  */
-const ResultCard = ({ candidate_id, filename, matchPercentage, matchDetails, summary, yoe, topStrengths, index, onGenerateQuestions, onOpenChat }) => {
+const ResultCard = ({ candidate_id, filename, matchPercentage, matchDetails, summary, yoe, topStrengths, jobDescription, _internal, index, onGenerateQuestions, onOpenChat }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [questions, setQuestions] = useState([]);
     const [fetchingQuestions, setFetchingQuestions] = useState(false);
@@ -24,14 +24,13 @@ const ResultCard = ({ candidate_id, filename, matchPercentage, matchDetails, sum
 
     const handleGenerateQuestions = async (e) => {
         e.stopPropagation();
-        if (questions.length > 0) return;
-
+        
         setFetchingQuestions(true);
         try {
             const result = await onGenerateQuestions({
-                matched_skills: matchDetails.matched_skills,
-                missing_skills: matchDetails.missing_skills,
-                years_of_experience: yoe
+                resume_text: _internal?.resume_text || "",
+                job_description: jobDescription || "",
+                filename: filename
             });
             setQuestions(result);
         } catch (err) {
@@ -204,7 +203,7 @@ const ResultCard = ({ candidate_id, filename, matchPercentage, matchDetails, sum
                                                     disabled={fetchingQuestions}
                                                     className="text-[10px] bg-yellow-500 bg-opacity-10 text-yellow-500 border border-yellow-500 border-opacity-20 px-2 py-1 rounded-md hover:bg-opacity-20 transition-all disabled:opacity-50"
                                                 >
-                                                    {fetchingQuestions ? 'Tailoring...' : questions.length > 0 ? 'Questions Ready' : 'Generate Tailored Questions'}
+                                                    {fetchingQuestions ? 'Generating...' : questions.length > 0 ? 'Regenerate Questions' : 'Generate Interview Questions'}
                                                 </button>
                                             </div>
 

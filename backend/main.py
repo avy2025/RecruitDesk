@@ -724,9 +724,7 @@ async def _rank_resumes_internal(
             "success": True,
             "total_resumes": len(results),
             "jd_analysis": asdict(jd_analysis) if jd_analysis else None,
-            "ranked_resumes": results if include_internal_fields else [
-                {k: v for k, v in r.items() if k != "_internal"} for r in results
-            ]
+            "ranked_resumes": results
         }
         
     except Exception as e:
@@ -853,19 +851,47 @@ async def ingest_resume(
 @app.post("/generate-questions")
 async def generate_interview_questions(data: Dict[str, Any]):
     """
-    Generate tailored interview questions based on match results (with caching)
+    On-demand interview question generation.
     """
-    matched_skills = data.get("matched_skills", [])
-    missing_skills = data.get("missing_skills", [])
-    yoe = data.get("years_of_experience", 0)
     resume_text = data.get("resume_text", "")
-    jd_text = data.get("job_description", "")
+    job_description = data.get("job_description", "")
     filename = data.get("filename", "unknown")
     
-    # Use cache layer to get/generate questions
+    if not resume_text or not job_description:
+        raise HTTPException(status_code=400, detail="Missing resume text or job description")
+
+    # Re-calculate metadata for tailoring (logic moved/copied from ranker to keep this endpoint focused)
+    metadata = extract_metadata(resume_text)
+    sections = parse_resume_sections(resume_text)
+    
+    # We don't need full hybrid scoring if we just want basic skills/yoe for questions
+    # But for consistency, let's do a quick alignment
+    jd_analysis = jd_analyzer.analyze(job_description) if jd_analyzer else None
+    
+    resume_details = {
+        "sections": sections,
+        "entities": {
+            "PERSON": [metadata.get("name")] if metadata.get("name") else [],
+            "NOUN_CHUNKS": metadata.get("skills", [])
+        }
+    }
+    
+    # Simple score calc without precomputed embeddings (fast enough for single resume)
+    match_data = calculate_hybrid_score(
+        job_description, 
+        resume_text, 
+        resume_details, 
+        jd_analysis
+    )
+    
+    matched_skills = match_data['matched_skills']
+    missing_skills = match_data['missing_skills']
+    yoe = match_data['years_of_experience']
+    
+    # Use cache layer
     questions = get_cached_questions(
         resume_text=resume_text,
-        jd_text=jd_text,
+        jd_text=job_description,
         matched_skills=matched_skills,
         missing_skills=missing_skills,
         yoe=yoe,
@@ -873,7 +899,7 @@ async def generate_interview_questions(data: Dict[str, Any]):
     )
     
     return {
-        "success": True,
+        "filename": filename,
         "questions": questions
     }
 
