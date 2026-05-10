@@ -59,7 +59,7 @@ Unlike traditional keyword-based filters, RecruitDesk AI understands the *intent
 
 ### Backend (The Brain)
 - **FastAPI**: Asynchronous high-performance API framework.
-- **Sentence-Transformers**: `all-mpnet-base-v2` for state-of-the-art semantic embeddings.
+- **Sentence-Transformers**: `all-MiniLM-L6-v2` for high-speed, accurate semantic embeddings.
 - **FAISS**: Facebook AI Similarity Search for lightning-fast vector retrieval.
 - **spaCy**: Industrial-strength NLP for entity extraction and technical skill classification (`en_core_web_sm`).
 - **Google Gemini / OpenAI**: Integrated for advanced conversational reasoning and RAG intelligence.
@@ -160,7 +160,8 @@ RecruitDesk/
 ## 📝 Notes & Privacy
 - **Local Processing**: Vector indexed (FAISS) and Semantic models run locally on your hardware.
 - **Data Privacy**: No resume data is permanently stored on external servers unless using the optional LLM chat features.
-- **First Run**: Initial startup downloads ~450MB of specialized AI models.
+- **First Run**: Initial startup downloads ~80MB of optimized AI models (Sentence Transformers and spaCy).
+- **Embed Cache**: If you previously used `all-mpnet-base-v2`, please manually delete the `.embed_cache/` directory in the backend folder to avoid incompatible embedding results.
 
 ---
 
