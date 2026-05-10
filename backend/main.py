@@ -13,6 +13,7 @@ import spacy
 import re
 import hashlib
 import pickle
+import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import asdict
@@ -63,6 +64,9 @@ decision_engine = HiringDecisionEngine()
 # Embedding Cache Configuration
 EMBED_CACHE_DIR = Path(".embed_cache")
 
+# Questions Cache Configuration
+QUESTIONS_CACHE_DIR = Path(".questions_cache")
+
 # Truncation Configuration
 MAX_RESUME_CHARS = 3000
 MAX_SECTION_CHARS = 800
@@ -106,10 +110,11 @@ async def load_models():
     """Load the sentence transformer model and spaCy model at startup"""
     global model, nlp
     
-    # Ensure cache directory exists
-    if not EMBED_CACHE_DIR.exists():
-        logger.info(f"Creating embedding cache directory: {EMBED_CACHE_DIR}")
-        EMBED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    # Ensure cache directories exist
+    for cache_dir in [EMBED_CACHE_DIR, QUESTIONS_CACHE_DIR]:
+        if not cache_dir.exists():
+            logger.info(f"Creating cache directory: {cache_dir}")
+            cache_dir.mkdir(parents=True, exist_ok=True)
     
     # Load Sentence Transformer
     logger.info("Loading sentence-transformers model: all-MiniLM-L6-v2 (Efficient & Fast)")
@@ -200,6 +205,107 @@ def truncate_text(text: str, max_chars: int) -> str:
     if ' ' in truncated:
         truncated = truncated.rsplit(' ', 1)[0]
     return truncated
+
+def get_cached_questions(
+    resume_text: str, 
+    jd_text: str, 
+    matched_skills: List[str], 
+    missing_skills: List[str], 
+    yoe: float,
+    filename: str = "unknown"
+) -> List[Dict[str, Any]]:
+    """
+    Get cached interview questions or generate and store them if missing.
+    """
+    if not resume_text and not jd_text:
+        # Fallback to local logic without caching if texts are missing
+        return _generate_questions_logic(matched_skills, missing_skills, yoe)
+
+    # 1. Compute cache key using MD5 hash of (resume_text + jd_text)
+    combined_text = f"{resume_text}{jd_text}"
+    cache_hash = hashlib.md5(combined_text.encode('utf-8')).hexdigest()
+    cache_file = QUESTIONS_CACHE_DIR / f"{cache_hash}.json"
+    
+    # 2. Check if cache exists
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'r') as f:
+                logger.debug(f"Interview questions cache hit for resume {filename}")
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Error loading questions cache for {filename}: {e}")
+            
+    # 3. Generate questions (Core Logic)
+    questions = _generate_questions_logic(matched_skills, missing_skills, yoe)
+    
+    # 4. Save successful results to cache
+    if questions:
+        try:
+            if not QUESTIONS_CACHE_DIR.exists():
+                QUESTIONS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, 'w') as f:
+                json.dump(questions, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Error saving questions cache for {filename}: {e}")
+            
+    return questions
+
+def _generate_questions_logic(matched_skills: List[str], missing_skills: List[str], yoe: float) -> List[Dict[str, Any]]:
+    """
+    Original rule-based question generation logic (formerly in generate_interview_questions).
+    """
+    questions = []
+    
+    # Core technical questions based on missing skills (probing gaps)
+    if missing_skills:
+        skill = missing_skills[0]
+        questions.append({
+            "type": "technical",
+            "skill": skill,
+            "question": f"While your resume shows strong experience, we noticed {skill} is a key requirement. Can you describe your familiarity with it or a similar technology?",
+            "expected": f"Demonstration of transferrable skills or a quick learning ability regarding {skill}."
+        })
+    
+    # Deep dive into strengths
+    if matched_skills:
+        skill = matched_skills[0]
+        questions.append({
+            "type": "experience",
+            "skill": skill,
+            "question": f"Given your expertise in {skill}, what was the most challenging technical hurdle you faced in a recent project involving it?",
+            "expected": "Detailed problem-solving approach and technical depth."
+        })
+        
+    # Seniority/Role based
+    if yoe >= 5:
+        questions.append({
+            "type": "leadership",
+            "question": "With your extensive experience, how do you approach mentoring junior developers or architecting systems for scalability?",
+            "expected": "Evidence of leadership qualities and architectural thinking."
+        })
+    else:
+        questions.append({
+            "type": "career",
+            "question": "As someone early in their career, how do you keep up with rapidly evolving tech stacks like the ones mentioned in the job description?",
+            "expected": "Curiosity, continuous learning habits, and resourcefulness."
+        })
+    
+    # Scenario based
+    if "agile" in [s.lower() for s in matched_skills]:
+        questions.append({
+            "type": "process",
+            "question": "How do you handle scope creep or shifting priorities in an Agile sprint environment?",
+            "expected": "Adaptability and communication skills within a team framework."
+        })
+    
+    # Soft skills
+    questions.append({
+        "type": "soft_skill",
+        "question": "Describe a time you had a technical disagreement with a teammate. How did you resolve it?",
+        "expected": "Collaboration and maturity."
+    })
+    
+    return questions[:5]
 
 def extract_entities(text: str) -> Dict[str, List[str]]:
     """
@@ -747,66 +853,28 @@ async def ingest_resume(
 @app.post("/generate-questions")
 async def generate_interview_questions(data: Dict[str, Any]):
     """
-    Generate tailored interview questions based on match results
+    Generate tailored interview questions based on match results (with caching)
     """
     matched_skills = data.get("matched_skills", [])
     missing_skills = data.get("missing_skills", [])
     yoe = data.get("years_of_experience", 0)
+    resume_text = data.get("resume_text", "")
+    jd_text = data.get("job_description", "")
+    filename = data.get("filename", "unknown")
     
-    questions = []
-    
-    # Core technical questions based on missing skills (probing gaps)
-    if missing_skills:
-        skill = missing_skills[0]
-        questions.append({
-            "type": "technical",
-            "skill": skill,
-            "question": f"While your resume shows strong experience, we noticed {skill} is a key requirement. Can you describe your familiarity with it or a similar technology?",
-            "expected": f"Demonstration of transferrable skills or a quick learning ability regarding {skill}."
-        })
-    
-    # Deep dive into strengths
-    if matched_skills:
-        skill = matched_skills[0]
-        questions.append({
-            "type": "experience",
-            "skill": skill,
-            "question": f"Given your expertise in {skill}, what was the most challenging technical hurdle you faced in a recent project involving it?",
-            "expected": "Detailed problem-solving approach and technical depth."
-        })
-        
-    # Seniority/Role based
-    if yoe >= 5:
-        questions.append({
-            "type": "leadership",
-            "question": "With your extensive experience, how do you approach mentoring junior developers or architecting systems for scalability?",
-            "expected": "Evidence of leadership qualities and architectural thinking."
-        })
-    else:
-        questions.append({
-            "type": "career",
-            "question": "As someone early in their career, how do you keep up with rapidly evolving tech stacks like the ones mentioned in the job description?",
-            "expected": "Curiosity, continuous learning habits, and resourcefulness."
-        })
-    
-    # Scenario based
-    if "agile" in [s.lower() for s in matched_skills]:
-        questions.append({
-            "type": "process",
-            "question": "How do you handle scope creep or shifting priorities in an Agile sprint environment?",
-            "expected": "Adaptability and communication skills within a team framework."
-        })
-    
-    # Soft skills
-    questions.append({
-        "type": "soft_skill",
-        "question": "Describe a time you had a technical disagreement with a teammate. How did you resolve it?",
-        "expected": "Collaboration and maturity."
-    })
+    # Use cache layer to get/generate questions
+    questions = get_cached_questions(
+        resume_text=resume_text,
+        jd_text=jd_text,
+        matched_skills=matched_skills,
+        missing_skills=missing_skills,
+        yoe=yoe,
+        filename=filename
+    )
     
     return {
         "success": True,
-        "questions": questions[:5]
+        "questions": questions
     }
 
 
