@@ -63,6 +63,10 @@ decision_engine = HiringDecisionEngine()
 # Embedding Cache Configuration
 EMBED_CACHE_DIR = Path(".embed_cache")
 
+# Truncation Configuration
+MAX_RESUME_CHARS = 3000
+MAX_SECTION_CHARS = 800
+
 def get_embedding(model, text: str, **kwargs):
     """
     Get embedding for text from cache if available, otherwise compute and store it.
@@ -186,6 +190,16 @@ def quick_filter(resume_text: str, jd_keywords: set, threshold: float = 0.05) ->
         
     overlap_ratio = len(resume_words & jd_keywords) / len(jd_keywords)
     return overlap_ratio >= threshold
+
+def truncate_text(text: str, max_chars: int) -> str:
+    """Cleanly truncate text at nearest whitespace before limit."""
+    if len(text) <= max_chars:
+        return text
+    
+    truncated = text[:max_chars]
+    if ' ' in truncated:
+        truncated = truncated.rsplit(' ', 1)[0]
+    return truncated
 
 def extract_entities(text: str) -> Dict[str, List[str]]:
     """
@@ -419,6 +433,11 @@ async def _rank_resumes_internal(
             # Extract text from file
             resume_text = parse_file(temp_file_path)
             
+            if resume_text and len(resume_text) > MAX_RESUME_CHARS:
+                original_len = len(resume_text)
+                resume_text = truncate_text(resume_text, MAX_RESUME_CHARS)
+                logger.info(f"Truncated resume {resume_file.filename} from {original_len} to {len(resume_text)} chars")
+            
             if not resume_text or len(resume_text.strip()) < 50:
                 results.append({
                     "filename": resume_file.filename,
@@ -502,6 +521,9 @@ async def _rank_resumes_internal(
             for section in weights_keys:
                 text = data["sections"].get(section, "")
                 if text.strip() and len(text.strip()) > 20:
+                    # Truncate section if too large
+                    if len(text) > MAX_SECTION_CHARS:
+                        text = truncate_text(text, MAX_SECTION_CHARS)
                     texts_to_encode.append(text)
                     text_map.append((idx, section))
         
