@@ -34,6 +34,7 @@ Unlike traditional keyword-based filters, RecruitDesk AI understands the *intent
 - **RAG-Powered Chat**: Converse with your resume database with session-aware memory, context drift detection, and automated history summarization.
 - **Explainable AI (XAI)**: Not just a score—get detailed reasoning, strength breakdowns, and technical gap analysis for every candidate.
 - **Smart Query Rewriting**: Intelligent conversion of shorthand user follow-ups into standalone, filter-aware RAG queries.
+- **OCR Fallback Engine**: Automatic detection and vision-aware processing for scanned or image-based PDFs, ensuring near-zero processing failure for non-text resumes.
 
 ### ⚡ Performance & Cost Control
 - **Intelligent Response Caching**: Hash-based in-memory cache (MD5) for LLM responses with FIFO eviction to minimize redundant API calls.
@@ -77,6 +78,8 @@ Unlike traditional keyword-based filters, RecruitDesk AI understands the *intent
 ### Prerequisites
 - **Python 3.11+**
 - **Node.js 18+**
+- **Tesseract OCR**: Required for OCR support ([Installation Guide](https://github.com/tesseract-ocr/tesseract))
+- **Poppler**: Required for PDF processing ([Installation Guide](https://poppler.freedesktop.org/))
 - (Optional) **Google Gemini API Key** for conversational features.
 
 ### 1. Clone & Setup

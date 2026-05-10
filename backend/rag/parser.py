@@ -3,6 +3,8 @@ import re
 import pdfplumber
 import docx
 import spacy
+import pytesseract
+from pdf2image import convert_from_path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
@@ -47,8 +49,47 @@ def parse_pdf(file_path: str) -> str:
                 if page_text:
                     text += page_text + "\n"
     except Exception as e:
-        logger.error(f"Error parsing PDF {file_path}: {str(e)}")
+        logger.error(f"Error parsing PDF with pdfplumber {file_path}: {str(e)}")
         # If pdfplumber fails, it might be an encrypted or corrupt file
+    
+    # OCR Fallback Support
+    # If text is empty or near-empty (less than 50 characters), it's likely a scanned/image PDF
+    if len(text.strip()) < 50:
+        logger.info(f"Insufficient text extracted ({len(text.strip())} chars). Attempting OCR fallback...")
+        
+        # System Dependencies Note:
+        # - Tesseract OCR: Required for image-to-text (https://github.com/tesseract-ocr/tesseract)
+        # - Poppler: Required by pdf2image (https://poppler.freedesktop.org/)
+        
+        try:
+            # Convert PDF pages to images
+            images = convert_from_path(file_path)
+            ocr_text = ""
+            
+            for i, image in enumerate(images):
+                # Run pytesseract on each page image
+                page_text = pytesseract.image_to_string(image)
+                if page_text:
+                    ocr_text += page_text + "\n"
+            
+            if ocr_text.strip():
+                logger.info(f"OCR fallback successful. Extracted {len(ocr_text.strip())} characters.")
+                text = ocr_text.strip()
+            else:
+                logger.warning("OCR fallback did not extract any text.")
+                
+        except Exception as ocr_err:
+            # Graceful failure if dependencies are missing
+            error_msg = str(ocr_err).lower()
+            if "tesseract" in error_msg or "not found" in error_msg:
+                logger.error("OCR Fallback failed: Tesseract OCR is not installed or not in system PATH.")
+            elif "pdfinfo" in error_msg or "poppler" in error_msg:
+                logger.error("OCR Fallback failed: Poppler is not installed or not in system PATH.")
+            else:
+                logger.error(f"OCR Fallback failed with error: {str(ocr_err)}")
+            
+            logger.info("Proceeding with original (insufficient) text.")
+
     return text.strip()
 
 def parse_docx(file_path: str) -> str:
