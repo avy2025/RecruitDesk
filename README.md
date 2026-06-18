@@ -173,6 +173,4 @@ RecruitDesk/
 
 ---
 
-<div align="center">
-Built with ❤️ for Modern Recruiters
-</div>
+
